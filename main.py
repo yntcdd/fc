@@ -191,7 +191,7 @@ player2 = Player(
         "right": pygame.K_RIGHT,
         "sprint": pygame.K_RSHIFT
     },
-    pygame.K_RCTRL
+    pygame.K_0
 )
 
 
