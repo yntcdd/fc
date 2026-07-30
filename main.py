@@ -488,7 +488,6 @@ while running:
         True,
         BLACK
     )
-
     screen.blit(
         score_text,
         (40, 30)
