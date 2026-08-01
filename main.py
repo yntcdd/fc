@@ -168,7 +168,7 @@ class Player:
 
 player1 = Player(
     WIDTH // 4,
-    HEIGHT // 2,
+    HEIGHT // 2 - 80,
     BLUE,
     {
         "up": pygame.K_w,
@@ -182,7 +182,7 @@ player1 = Player(
 
 player2 = Player(
     WIDTH * 3 // 4,
-    HEIGHT // 2,
+    HEIGHT // 2 - 80,
     RED,
     {
         "up": pygame.K_UP,
@@ -194,16 +194,54 @@ player2 = Player(
     pygame.K_0
 )
 
+player3 = Player(
+    WIDTH // 4,
+    HEIGHT // 2 + 80,
+    BLUE,
+    {
+        "up": pygame.K_i,
+        "down": pygame.K_k,
+        "left": pygame.K_j,
+        "right": pygame.K_l,
+        "sprint": pygame.K_u
+    },
+    pygame.K_o
+)
+
+player4 = Player(
+    WIDTH * 3 // 4,
+    HEIGHT // 2 + 80,
+    RED,
+    {
+        "up": pygame.K_KP8,
+        "down": pygame.K_KP5,
+        "left": pygame.K_KP4,
+        "right": pygame.K_KP6,
+        "sprint": pygame.K_KP7
+    },
+    pygame.K_KP9
+)
+
+blue_team = [player1, player3]
+red_team = [player2, player4]
+all_players = [player1, player2, player3, player4]
+
 
 def reset_positions():
     global ball_x, ball_y
     global ball_vx, ball_vy
 
     player1.x = WIDTH // 4
-    player1.y = HEIGHT // 2
+    player1.y = HEIGHT // 2 - 80
 
     player2.x = WIDTH * 3 // 4
-    player2.y = HEIGHT // 2
+    player2.y = HEIGHT // 2 - 80
+
+    player3.x = WIDTH // 4
+    player3.y = HEIGHT // 2 + 80
+
+    player4.x = WIDTH * 3 // 4
+    player4.y = HEIGHT // 2 + 80
 
     ball_x = WIDTH // 2
     ball_y = HEIGHT // 2
@@ -213,6 +251,8 @@ def reset_positions():
 
     player1.holding_ball = False
     player2.holding_ball = False
+    player3.holding_ball = False
+    player4.holding_ball = False
 
 
 def draw_field():
@@ -304,56 +344,43 @@ while running:
     if game_state == "playing":
 
         # Update players
-        player1.move(keys)
-        player2.move(keys)
-
-        player1.charge_kick(keys)
-        player2.charge_kick(keys)
-
-        player1.release_kick(keys)
-        player2.release_kick(keys)
+        for p in all_players:
+            p.move(keys)
+            p.charge_kick(keys)
+            p.release_kick(keys)
 
         if steal_cooldown > 0:
             steal_cooldown -= 1
 
         # Ball pickup
-        if not player1.holding_ball and not player2.holding_ball:
-            player1.pickup_ball()
-            player2.pickup_ball()
+        if not any(p.holding_ball for p in all_players):
+            for p in all_players:
+                p.pickup_ball()
 
         # Ball carrying
-        player1.carry_ball()
-        player2.carry_ball()
+        for p in all_players:
+            p.carry_ball()
 
         # Steal ball
-
         if steal_cooldown == 0:
-            if player1.holding_ball:
-                distance = math.hypot(ball_x - player2.x, ball_y - player2.y)
-
-                if distance < player2.radius + ball_radius:
-                    player1.holding_ball = False
-                    player2.holding_ball = True
-                    ball_vx = 0
-                    ball_vy = 0
-
-                    steal_cooldown = STEAL_COOLDOWN_TIME
-
-
-            if player2.holding_ball:
-                distance = math.hypot(ball_x - player1.x, ball_y - player1.y)
-
-                if distance < player1.radius + ball_radius:
-                    player2.holding_ball = False
-                    player1.holding_ball = True
-                    ball_vx = 0
-                    ball_vy = 0
-
-                    steal_cooldown = STEAL_COOLDOWN_TIME
+            for holder in all_players:
+                if holder.holding_ball:
+                    opponents = red_team if holder in blue_team else blue_team
+                    for opponent in opponents:
+                        distance = math.hypot(ball_x - opponent.x, ball_y - opponent.y)
+                        if distance < opponent.radius + ball_radius:
+                            holder.holding_ball = False
+                            opponent.holding_ball = True
+                            ball_vx = 0
+                            ball_vy = 0
+                            steal_cooldown = STEAL_COOLDOWN_TIME
+                            break
+                    if steal_cooldown > 0:
+                        break
 
                 
         # Ball movement
-        if not player1.holding_ball and not player2.holding_ball:
+        if not any(p.holding_ball for p in all_players):
             ball_x += ball_vx
             ball_y += ball_vy
 
@@ -411,8 +438,8 @@ while running:
     draw_field()
 
     # Draw players
-    player1.draw()
-    player2.draw()
+    for p in all_players:
+        p.draw()
 
     # Draw ball
     pygame.draw.circle(
@@ -422,65 +449,36 @@ while running:
         ball_radius
     )
 
-    # Player 1 kick bar
-    if player1.holding_ball:
-        bar_width = 60
-        bar_height = 8
+    # Kick bar for any player holding the ball
+    for p in all_players:
+        if p.holding_ball:
+            bar_width = 60
+            bar_height = 8
 
-        bar_x = player1.x - bar_width / 2
-        bar_y = player1.y + player1.radius + 10
+            bar_x = p.x - bar_width / 2
+            bar_y = p.y + p.radius + 10
 
-        pygame.draw.rect(
-            screen,
-            BLACK,
-            (bar_x, bar_y, bar_width, bar_height)
-        )
+            pygame.draw.rect(
+                screen,
+                BLACK,
+                (bar_x, bar_y, bar_width, bar_height)
+            )
 
-        power = player1.kick_power / MAX_KICK_POWER
-        power = min(power, 1)
+            power = p.kick_power / MAX_KICK_POWER
+            power = min(power, 1)
 
-        if power < 0.5:
-            r = int(255 * power * 2)
-            g = 255
-        else:
-            r = 255
-            g = int(255 * (1 - (power - 0.5) * 2))
+            if power < 0.5:
+                r = int(255 * power * 2)
+                g = 255
+            else:
+                r = 255
+                g = int(255 * (1 - (power - 0.5) * 2))
 
-        pygame.draw.rect(
-            screen,
-            (r, g, 0),
-            (bar_x, bar_y, bar_width * power, bar_height)
-        )
-
-    # Player 2 kick bar
-    if player2.holding_ball:
-        bar_width = 60
-        bar_height = 8
-
-        bar_x = player2.x - bar_width / 2
-        bar_y = player2.y + player2.radius + 10
-
-        pygame.draw.rect(
-            screen,
-            BLACK,
-            (bar_x, bar_y, bar_width, bar_height)
-        )
-
-        power = player2.kick_power / MAX_KICK_POWER
-        power = min(power, 1)
-
-        if power < 0.5:
-            r = int(255 * power * 2)
-            g = 255
-        else:
-            r = 255
-            g = int(255 * (1 - (power - 0.5) * 2))
-
-        pygame.draw.rect(
-            screen,
-            (r, g, 0),
-            (bar_x, bar_y, bar_width * power, bar_height)
-        )
+            pygame.draw.rect(
+                screen,
+                (r, g, 0),
+                (bar_x, bar_y, bar_width * power, bar_height)
+            )
 
     # Score
     score_text = score_font.render(
@@ -488,7 +486,7 @@ while running:
         True,
         BLACK
     )
-    s
+    
     screen.blit(
         score_text,
         (40, 30)
