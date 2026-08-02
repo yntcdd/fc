@@ -1,5 +1,6 @@
 import pygame
 import math
+from ai import create_ai, cycle_ai, AI_REGISTRY
 
 pygame.init()
 
@@ -20,6 +21,22 @@ ORANGE = (255, 140, 0)
 font = pygame.font.SysFont(None, 120)
 score_font = pygame.font.SysFont(None, 70)
 count_font = pygame.font.SysFont(None, 100)
+ai_font = pygame.font.SysFont(None, 24)
+
+# ————————————————————————————————————————————————
+#  AI Configuration
+# ————————————————————————————————————————————————
+#  Set each player to None (keyboard) or an AI instance.
+#  Use create_ai("name") to get an instance by name.
+#  Available AIs: "striker", "playmaker", "goalkeeper", "trickster"
+#  (Press 1/2/3/4 during play to toggle AI on/off per player,
+#   press 0 to cycle the AI type of the toggled players.)
+
+PLAYER1_AI = create_ai("playmaker")                    # WASD      – keyboard
+PLAYER2_AI = create_ai("trickster")                    # Arrows    – keyboard
+PLAYER3_AI = create_ai("striker")                    # IJKL      – keyboard
+PLAYER4_AI = create_ai("playmaker")    # Numpad    – AI
+# ————————————————————————————————————————————————
 
 # Field
 GOAL_WIDTH = 40
@@ -66,6 +83,7 @@ class Player:
         self.kick_key = kick_key
 
         self.holding_ball = False
+        self.steal_shield = 0     # frames of immunity after acquiring the ball
 
         self.kick_power = 0
         self.kick_cooldown = 0
@@ -146,6 +164,7 @@ class Player:
 
             if distance < self.radius + ball_radius:
                 self.holding_ball = True
+                self.steal_shield = 25   # ~0.4 sec immunity
 
                 ball_vx = 0
                 ball_vy = 0
@@ -226,6 +245,24 @@ blue_team = [player1, player3]
 red_team = [player2, player4]
 all_players = [player1, player2, player3, player4]
 
+# ——— Assign AIs to players ———
+player1.ai = PLAYER1_AI
+player2.ai = PLAYER2_AI
+player3.ai = PLAYER3_AI
+player4.ai = PLAYER4_AI
+
+
+def ai_decision_to_keys(decision, player):
+    """Convert an AI decision dict into a pressed-keys dict keyed by the
+    player's actual pygame keycodes so the existing Player methods work."""
+    keys = {}
+    for action in ("up", "down", "left", "right", "sprint"):
+        keys[player.keys[action]] = decision.get(action, False)
+
+    kick_wanted = decision.get("kick", False)
+    keys[player.kick_key] = (kick_wanted is True)  # held
+    return keys
+
 
 def reset_positions():
     global ball_x, ball_y
@@ -249,10 +286,11 @@ def reset_positions():
     ball_vx = 0
     ball_vy = 0
 
-    player1.holding_ball = False
-    player2.holding_ball = False
-    player3.holding_ball = False
-    player4.holding_ball = False
+    for p in all_players:
+        p.holding_ball = False
+        p.kick_power = 0
+        p.kick_cooldown = 0
+        p.steal_shield = 0
 
 
 def draw_field():
@@ -331,6 +369,11 @@ def goal_scored(team):
 
     reset_positions()
 
+    # Reset AI state
+    for p in all_players:
+        if p.ai is not None:
+            p.ai.reset()
+
 
 while running:
     clock.tick(60)
@@ -339,18 +382,66 @@ while running:
         if event.type == pygame.QUIT:
             running = False
 
+        if event.type == pygame.KEYDOWN:
+            # ——— AI toggle keys ————————————————————————
+            #  1-4 : toggle AI on/off for that player
+            #  0   : cycle AI type (for players that have AI on)
+            # ————————————————————————————————————————————
+            if event.key == pygame.K_1:
+                player1.ai = cycle_ai(player1.ai)
+            elif event.key == pygame.K_2:
+                player2.ai = cycle_ai(player2.ai)
+            elif event.key == pygame.K_3:
+                player3.ai = cycle_ai(player3.ai)
+            elif event.key == pygame.K_4:
+                player4.ai = cycle_ai(player4.ai)
+            elif event.key == pygame.K_0:
+                # Cycle AI type for every AI-controlled player
+                for p in all_players:
+                    if p.ai is not None:
+                        p.ai = cycle_ai(p.ai)
+
     keys = pygame.key.get_pressed()
 
     if game_state == "playing":
 
         # Update players
         for p in all_players:
-            p.move(keys)
-            p.charge_kick(keys)
-            p.release_kick(keys)
+            if p.ai is not None:
+                # ——— AI-controlled ————————————————
+                teammates = blue_team if p in blue_team else red_team
+                opponents = red_team if p in blue_team else blue_team
+                attacking_right = (p in blue_team)
+
+                decision = p.ai.decide(
+                    p, ball_x, ball_y, ball_vx, ball_vy,
+                    teammates, opponents, attacking_right,
+                )
+
+                ai_keys = ai_decision_to_keys(decision, p)
+
+                p.move(ai_keys)
+
+                # Override face direction for kick aiming
+                face = decision.get("face")
+                if face is not None:
+                    p.face_x, p.face_y = face
+
+                p.charge_kick(ai_keys)
+                p.release_kick(ai_keys)
+            else:
+                # ——— Keyboard-controlled ———————————
+                p.move(keys)
+                p.charge_kick(keys)
+                p.release_kick(keys)
 
         if steal_cooldown > 0:
             steal_cooldown -= 1
+
+        # Tick down shields
+        for p in all_players:
+            if p.steal_shield > 0:
+                p.steal_shield -= 1
 
         # Ball pickup
         if not any(p.holding_ball for p in all_players):
@@ -361,18 +452,37 @@ while running:
         for p in all_players:
             p.carry_ball()
 
-        # Steal ball
+        # Steal — pops the ball loose instead of transferring possession.
+        # This prevents ping-pong A→B→A→B stealing.
+        # Only works from the FRONT — opponent must be on the ball-side of the holder.
         if steal_cooldown == 0:
             for holder in all_players:
-                if holder.holding_ball:
+                if holder.holding_ball and holder.steal_shield == 0:
                     opponents = red_team if holder in blue_team else blue_team
                     for opponent in opponents:
+                        # Must be in front of the holder (same side as the ball)
+                        to_opp_x = opponent.x - holder.x
+                        to_opp_y = opponent.y - holder.y
+                        dot = holder.face_x * to_opp_x + holder.face_y * to_opp_y
+                        if dot <= 0:
+                            continue   # opponent is behind — can't steal
+
                         distance = math.hypot(ball_x - opponent.x, ball_y - opponent.y)
-                        if distance < opponent.radius + ball_radius:
+                        if distance < opponent.radius + ball_radius - 2:
+                            # Pop the ball loose — away from both players
+                            mid_x = (holder.x + opponent.x) / 2
+                            mid_y = (holder.y + opponent.y) / 2
+                            pop_dir_x = ball_x - mid_x
+                            pop_dir_y = ball_y - mid_y
+                            pop_dist = math.hypot(pop_dir_x, pop_dir_y)
+                            if pop_dist < 0.01:
+                                pop_dir_x = 1
+                                pop_dir_y = 0
+                                pop_dist = 1
+
                             holder.holding_ball = False
-                            opponent.holding_ball = True
-                            ball_vx = 0
-                            ball_vy = 0
+                            ball_vx = (pop_dir_x / pop_dist) * 8
+                            ball_vy = (pop_dir_y / pop_dist) * 8
                             steal_cooldown = STEAL_COOLDOWN_TIME
                             break
                     if steal_cooldown > 0:
@@ -440,6 +550,30 @@ while running:
     # Draw players
     for p in all_players:
         p.draw()
+
+    # Draw AI indicator above AI-controlled players
+    for p in all_players:
+        if p.ai is not None:
+            label = ai_font.render(p.ai.name, True, (255, 255, 0))
+            screen.blit(
+                label,
+                (p.x - label.get_width() // 2, p.y - p.radius - 22),
+            )
+
+    # Draw shield ring around immune players
+    for p in all_players:
+        if p.steal_shield > 0:
+            alpha = p.steal_shield / 25  # fades out
+            r = int(200 * alpha)
+            g = int(200 * alpha)
+            b = int(255 * alpha)
+            pygame.draw.circle(
+                screen,
+                (r, g, b),
+                (int(p.x), int(p.y)),
+                p.radius + 5,
+                2,
+            )
 
     # Draw ball
     pygame.draw.circle(
@@ -527,6 +661,23 @@ while running:
                 HEIGHT // 2 - text.get_height() // 2
             )
         )
+
+    # ——— HUD: AI status bar at the bottom ———————————
+    y_base = HEIGHT - 50
+    slot_w = 280
+    for i, p in enumerate(all_players):
+        px = 30 + i * (slot_w + 30)
+        status = p.ai.name if p.ai is not None else "Keyboard"
+        color = (255, 255, 0) if p.ai is not None else (180, 180, 180)
+        label = ai_font.render(f"P{i+1}: {status}", True, color)
+        screen.blit(label, (px, y_base))
+
+    # Cycle hint
+    hint = ai_font.render(
+        "Keys 1-4: cycle AI per player  |  0: cycle all AI types",
+        True, (200, 200, 200),
+    )
+    screen.blit(hint, (WIDTH - hint.get_width() - 20, y_base))
 
     pygame.display.flip()
 
