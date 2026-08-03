@@ -32,10 +32,10 @@ ai_font = pygame.font.SysFont(None, 24)
 #  (Press 1/2/3/4 during play to toggle AI on/off per player,
 #   press 0 to cycle the AI type of the toggled players.)
 
-PLAYER1_AI = create_ai("playmaker")                    # WASD      – keyboard
-PLAYER2_AI = create_ai("trickster")                    # Arrows    – keyboard
+PLAYER1_AI = create_ai("goalkeeper")                    # WASD      – keyboard
+PLAYER2_AI = create_ai("playmaker")                    # Arrows    – keyboard
 PLAYER3_AI = create_ai("striker")                    # IJKL      – keyboard
-PLAYER4_AI = create_ai("playmaker")    # Numpad    – AI
+PLAYER4_AI = create_ai("striker")    # Numpad    – AI
 # ————————————————————————————————————————————————
 
 # Field
@@ -43,8 +43,12 @@ GOAL_WIDTH = 40
 GOAL_HEIGHT = 250
 
 # Ball
-STEAL_COOLDOWN_TIME = 30  # 30 frames = 0.5 seconds at 60 FPS
+STEAL_COOLDOWN_TIME = 120  # 120 frames = 2 seconds at 60 FPS
 steal_cooldown = 0
+
+# Pass interception tracking
+last_kicker = None           # player who last kicked the ball
+interception_timer = 0       # frames remaining where an interception can happen
 
 ball_radius = 12
 ball_x = WIDTH // 2
@@ -84,6 +88,7 @@ class Player:
 
         self.holding_ball = False
         self.steal_shield = 0     # frames of immunity after acquiring the ball
+        self.stunned = 0          # frames of immobility after being tackled
 
         self.kick_power = 0
         self.kick_cooldown = 0
@@ -136,13 +141,17 @@ class Player:
             self.kick_cooldown -= 1
 
         if pressed[self.kick_key] and self.holding_ball and self.kick_cooldown == 0:
+            # Start at half power on first frame
+            if self.kick_power < 0.01:
+                self.kick_power = MAX_KICK_POWER * 0.5
+
             self.kick_power += KICK_CHARGE_RATE
 
             if self.kick_power > MAX_KICK_POWER:
                 self.kick_power = MAX_KICK_POWER
 
     def release_kick(self, pressed):
-        global ball_vx, ball_vy
+        global ball_vx, ball_vy, last_kicker, interception_timer
 
         if not pressed[self.kick_key] and self.kick_power > 0 and self.holding_ball:
             self.holding_ball = False
@@ -153,8 +162,12 @@ class Player:
             self.kick_power = 0
             self.kick_cooldown = KICK_COOLDOWN_TIME
 
+            # Track for interception detection
+            last_kicker = self
+            interception_timer = 90   # 1.5 sec window
+
     def pickup_ball(self):
-        global ball_vx, ball_vy
+        global ball_vx, ball_vy, last_kicker, interception_timer
 
         if not self.holding_ball:
             distance = math.hypot(
@@ -168,6 +181,15 @@ class Player:
 
                 ball_vx = 0
                 ball_vy = 0
+
+                # Interception: opponent picks up the ball right after a kick
+                if (last_kicker is not None and
+                    interception_timer > 0 and
+                    last_kicker is not self and
+                    ((self in blue_team) != (last_kicker in blue_team))):
+                    last_kicker.stunned = 60   # 1 sec stun
+                last_kicker = None
+                interception_timer = 0
 
     def carry_ball(self):
         global ball_x, ball_y
@@ -267,6 +289,7 @@ def ai_decision_to_keys(decision, player):
 def reset_positions():
     global ball_x, ball_y
     global ball_vx, ball_vy
+    global last_kicker, interception_timer
 
     player1.x = WIDTH // 4
     player1.y = HEIGHT // 2 - 80
@@ -286,11 +309,15 @@ def reset_positions():
     ball_vx = 0
     ball_vy = 0
 
+    last_kicker = None
+    interception_timer = 0
+
     for p in all_players:
         p.holding_ball = False
         p.kick_power = 0
         p.kick_cooldown = 0
         p.steal_shield = 0
+        p.stunned = 0
 
 
 def draw_field():
@@ -438,15 +465,52 @@ while running:
         if steal_cooldown > 0:
             steal_cooldown -= 1
 
-        # Tick down shields
+        # Tick down shields, stuns, and interception window
         for p in all_players:
             if p.steal_shield > 0:
                 p.steal_shield -= 1
+            if p.stunned > 0:
+                p.stunned -= 1
+        if interception_timer > 0:
+            interception_timer -= 1
 
-        # Ball pickup
+        # ——— Player collision — push apart overlapping players ———
+        # Stunned players are ghosts (no collision).
+        # Teammates get a softer push so they don't fight each other.
+        for i in range(len(all_players)):
+            for j in range(i + 1, len(all_players)):
+                a = all_players[i]
+                b = all_players[j]
+                if a.stunned > 0 or b.stunned > 0:
+                    continue   # stunned players don't collide
+                dx = a.x - b.x
+                dy = a.y - b.y
+                dist = math.hypot(dx, dy)
+                min_dist = a.radius + b.radius
+                if dist < min_dist and dist > 0.01:
+                    overlap = min_dist - dist
+                    nx = dx / dist
+                    ny = dy / dist
+                    # Same team → light push.  Opponents → full push.
+                    same_team = (a in blue_team and b in blue_team) or (a in red_team and b in red_team)
+                    force = 0.15 if same_team else 0.5
+                    a.x += nx * overlap * force
+                    a.y += ny * overlap * force
+                    b.x -= nx * overlap * force
+                    b.y -= ny * overlap * force
+                elif dist < 0.01:
+                    a.x += 1
+                    b.x -= 1
+
+        # Ball pickup — closest player gets it, not first in list order
         if not any(p.holding_ball for p in all_players):
-            for p in all_players:
+            # Sort by distance to ball so the closest player always wins
+            candidates = [p for p in all_players if p.stunned == 0]
+            candidates.sort(key=lambda p: math.hypot(ball_x - p.x, ball_y - p.y))
+            for p in candidates:
                 p.pickup_ball()
+                if p.holding_ball:
+                    break   # ball claimed, stop
 
         # Ball carrying
         for p in all_players:
@@ -460,15 +524,17 @@ while running:
                 if holder.holding_ball and holder.steal_shield == 0:
                     opponents = red_team if holder in blue_team else blue_team
                     for opponent in opponents:
-                        # Must be in front of the holder (same side as the ball)
+                        if opponent.stunned > 0:
+                            continue   # stunned players can't tackle
+                        # Must not be directly behind the holder
                         to_opp_x = opponent.x - holder.x
                         to_opp_y = opponent.y - holder.y
                         dot = holder.face_x * to_opp_x + holder.face_y * to_opp_y
-                        if dot <= 0:
-                            continue   # opponent is behind — can't steal
+                        if dot <= -0.5:   # only block if well behind
+                            continue
 
                         distance = math.hypot(ball_x - opponent.x, ball_y - opponent.y)
-                        if distance < opponent.radius + ball_radius - 2:
+                        if distance < opponent.radius + ball_radius + 4:
                             # Pop the ball loose — away from both players
                             mid_x = (holder.x + opponent.x) / 2
                             mid_y = (holder.y + opponent.y) / 2
@@ -550,6 +616,11 @@ while running:
     # Draw players
     for p in all_players:
         p.draw()
+        # Stunned indicator — just a mark showing they can't pick up the ball
+        if p.stunned > 0:
+            stun_label = ai_font.render("!", True, (255, 80, 80))
+            screen.blit(stun_label,
+                        (p.x - stun_label.get_width() // 2, p.y - p.radius - 38))
 
     # Draw AI indicator above AI-controlled players
     for p in all_players:
@@ -560,20 +631,6 @@ while running:
                 (p.x - label.get_width() // 2, p.y - p.radius - 22),
             )
 
-    # Draw shield ring around immune players
-    for p in all_players:
-        if p.steal_shield > 0:
-            alpha = p.steal_shield / 25  # fades out
-            r = int(200 * alpha)
-            g = int(200 * alpha)
-            b = int(255 * alpha)
-            pygame.draw.circle(
-                screen,
-                (r, g, b),
-                (int(p.x), int(p.y)),
-                p.radius + 5,
-                2,
-            )
 
     # Draw ball
     pygame.draw.circle(
