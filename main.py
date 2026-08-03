@@ -32,7 +32,7 @@ ai_font = pygame.font.SysFont(None, 24)
 #  (Press 1/2/3/4 during play to toggle AI on/off per player,
 #   press 0 to cycle the AI type of the toggled players.)
 
-PLAYER1_AI = create_ai("goalkeeper")                    # WASD      – keyboard
+PLAYER1_AI = create_ai("playmaker")                    # WASD      – keyboard
 PLAYER2_AI = create_ai("playmaker")                    # Arrows    – keyboard
 PLAYER3_AI = create_ai("striker")                    # IJKL      – keyboard
 PLAYER4_AI = create_ai("striker")    # Numpad    – AI
