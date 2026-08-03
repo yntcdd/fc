@@ -68,12 +68,19 @@ KICK_COOLDOWN_TIME = 20
 score_left = 0
 score_right = 0
 
+# Game timer (60 seconds at 60 FPS)
+GAME_DURATION = 60 * 60
+game_timer = GAME_DURATION
+
+timer_font = pygame.font.SysFont(None, 60)
+
 
 class Player:
-    def __init__(self, x, y, color, keys, kick_key):
+    def __init__(self, x, y, color, keys, kick_key, display_name=""):
         self.x = x
         self.y = y
         self.color = color
+        self.display_name = display_name
 
         self.radius = 20
 
@@ -89,6 +96,7 @@ class Player:
         self.holding_ball = False
         self.steal_shield = 0     # frames of immunity after acquiring the ball
         self.stunned = 0          # frames of immobility after being tackled
+        self.slow_timer = 0       # frames of half-speed after intercepting a kick
 
         self.kick_power = 0
         self.kick_cooldown = 0
@@ -122,6 +130,9 @@ class Player:
 
         if self.holding_ball:
             speed *= 0.8
+
+        if self.slow_timer > 0:
+            speed *= 0.5
 
         self.x += dx * speed
         self.y += dy * speed
@@ -188,6 +199,7 @@ class Player:
                     last_kicker is not self and
                     ((self in blue_team) != (last_kicker in blue_team))):
                     last_kicker.stunned = 60   # 1 sec stun
+                    self.slow_timer = 120      # 2 sec half-speed for interceptor
                 last_kicker = None
                 interception_timer = 0
 
@@ -218,7 +230,8 @@ player1 = Player(
         "right": pygame.K_d,
         "sprint": pygame.K_LSHIFT
     },
-    pygame.K_SPACE
+    pygame.K_SPACE,
+    "Blue 1"
 )
 
 player2 = Player(
@@ -232,7 +245,8 @@ player2 = Player(
         "right": pygame.K_RIGHT,
         "sprint": pygame.K_RSHIFT
     },
-    pygame.K_0
+    pygame.K_0,
+    "Red 1"
 )
 
 player3 = Player(
@@ -246,7 +260,8 @@ player3 = Player(
         "right": pygame.K_l,
         "sprint": pygame.K_u
     },
-    pygame.K_o
+    pygame.K_o,
+    "Blue 2"
 )
 
 player4 = Player(
@@ -260,7 +275,8 @@ player4 = Player(
         "right": pygame.K_KP6,
         "sprint": pygame.K_KP7
     },
-    pygame.K_KP9
+    pygame.K_KP9,
+    "Red 2"
 )
 
 blue_team = [player1, player3]
@@ -430,7 +446,10 @@ while running:
 
     keys = pygame.key.get_pressed()
 
-    if game_state == "playing":
+    if game_state == "playing" and game_timer > 0:
+
+        # Game timer
+        game_timer -= 1
 
         # Update players
         for p in all_players:
@@ -465,12 +484,14 @@ while running:
         if steal_cooldown > 0:
             steal_cooldown -= 1
 
-        # Tick down shields, stuns, and interception window
+        # Tick down shields, stuns, slow, and interception window
         for p in all_players:
             if p.steal_shield > 0:
                 p.steal_shield -= 1
             if p.stunned > 0:
                 p.stunned -= 1
+            if p.slow_timer > 0:
+                p.slow_timer -= 1
         if interception_timer > 0:
             interception_timer -= 1
 
@@ -616,21 +637,17 @@ while running:
     # Draw players
     for p in all_players:
         p.draw()
+        # Player name
+        name_label = ai_font.render(p.display_name, True, WHITE)
+        screen.blit(
+            name_label,
+            (p.x - name_label.get_width() // 2, p.y - p.radius - 22),
+        )
         # Stunned indicator — just a mark showing they can't pick up the ball
         if p.stunned > 0:
             stun_label = ai_font.render("!", True, (255, 80, 80))
             screen.blit(stun_label,
                         (p.x - stun_label.get_width() // 2, p.y - p.radius - 38))
-
-    # Draw AI indicator above AI-controlled players
-    for p in all_players:
-        if p.ai is not None:
-            label = ai_font.render(p.ai.name, True, (255, 255, 0))
-            screen.blit(
-                label,
-                (p.x - label.get_width() // 2, p.y - p.radius - 22),
-            )
-
 
     # Draw ball
     pygame.draw.circle(
@@ -677,11 +694,35 @@ while running:
         True,
         BLACK
     )
-    
+
     screen.blit(
         score_text,
         (40, 30)
     )
+
+    # Timer
+    seconds_left = max(0, math.ceil(game_timer / 60))
+    timer_color = WHITE if seconds_left > 10 else RED
+    timer_text = timer_font.render(
+        f"{seconds_left}s",
+        True,
+        timer_color
+    )
+    screen.blit(
+        timer_text,
+        (WIDTH // 2 - timer_text.get_width() // 2, 30)
+    )
+
+    # Game Over
+    if game_timer <= 0 and game_state == "playing":
+        over_text = font.render("GAME OVER", True, BLACK)
+        screen.blit(
+            over_text,
+            (
+                WIDTH // 2 - over_text.get_width() // 2,
+                HEIGHT // 2 - over_text.get_height() // 2 - 80,
+            )
+        )
 
     # Goal message
     if game_state == "goal":
@@ -718,23 +759,6 @@ while running:
                 HEIGHT // 2 - text.get_height() // 2
             )
         )
-
-    # ——— HUD: AI status bar at the bottom ———————————
-    y_base = HEIGHT - 50
-    slot_w = 280
-    for i, p in enumerate(all_players):
-        px = 30 + i * (slot_w + 30)
-        status = p.ai.name if p.ai is not None else "Keyboard"
-        color = (255, 255, 0) if p.ai is not None else (180, 180, 180)
-        label = ai_font.render(f"P{i+1}: {status}", True, color)
-        screen.blit(label, (px, y_base))
-
-    # Cycle hint
-    hint = ai_font.render(
-        "Keys 1-4: cycle AI per player  |  0: cycle all AI types",
-        True, (200, 200, 200),
-    )
-    screen.blit(hint, (WIDTH - hint.get_width() - 20, y_base))
 
     pygame.display.flip()
 

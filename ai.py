@@ -305,7 +305,7 @@ class StrikerAI(BaseAI):
                         kick = False; self._run_timer = 35
                 else:
                     # Shoot toward goal — from anywhere on the field
-                    target_power = (0.3 + min(dist_to_goal / 2000, 0.5)) * MAX_KICK_POWER
+                    target_power = (0.4 + min(dist_to_goal / 1400, 0.6)) * MAX_KICK_POWER
                     if player.kick_power < target_power:
                         kick = True
                     else:
@@ -313,7 +313,7 @@ class StrikerAI(BaseAI):
 
             # ——— Default: always shoot toward goal —————————————
             else:
-                target_power = (0.35 + min(dist_to_goal / 2000, 0.55)) * MAX_KICK_POWER
+                target_power = (0.45 + min(dist_to_goal / 1300, 0.55)) * MAX_KICK_POWER
                 if player.kick_power < target_power:
                     kick = True
                 else:
@@ -325,12 +325,46 @@ class StrikerAI(BaseAI):
             pred_x = ball_x + ball_vx * 6
             pred_y = ball_y + ball_vy * 6
 
+            # Check if a teammate has the ball
+            holder = None
+            for t in teammates:
+                if t.holding_ball:
+                    holder = t
+                    break
+
             # Give-and-go: if we just passed, make a forward run
             if self._run_timer > 0:
                 run_x = player.x + dx_goal * 90
                 run_y = HEIGHT // 2 + (50 if player.y < HEIGHT // 2 else -50)
                 up, down, left, right = _move_toward(player.x, player.y, run_x, run_y)
                 face = _norm(dx_goal, 0)
+
+            # Teammate has ball and we're marked — move laterally to get open
+            elif holder is not None:
+                # Check if opponent blocks the passing lane from holder to us
+                path_open = not _path_blocked(holder.x, holder.y, player.x, player.y, opponents, 40)
+                opp_near_us, opp_d = _closest_opponent(player.x, player.y, opponents)
+
+                if not path_open or opp_d < 100:
+                    # Marked! Move to the side to create a clear lane
+                    lateral_dir = 1 if player.y < HEIGHT // 2 else -1
+                    # Lateral movement + slight forward push toward opponent goal
+                    target_x = player.x + dx_goal * 40
+                    target_y = player.y + lateral_dir * 90
+                    target_y = max(70, min(HEIGHT - 70, target_y))
+                    up, down, left, right = _move_toward(player.x, player.y, target_x, target_y)
+                    wall = _wall_push(player.x, player.y, 50)
+                    up, down, left, right = _blend((up, down, left, right), wall, 0.5)
+                else:
+                    # Path is clear — stay available for a pass
+                    # Position ourselves ahead of the holder
+                    sup_x = holder.x + dx_goal * 100
+                    sup_y = holder.y + (100 if player.y < HEIGHT // 2 else -100)
+                    sup_y = max(70, min(HEIGHT - 70, sup_y + juke * 50))
+                    up, down, left, right = _move_toward(player.x, player.y, sup_x, sup_y)
+                    wall = _wall_push(player.x, player.y, 50)
+                    up, down, left, right = _blend((up, down, left, right), wall, 0.5)
+
             else:
                 our_d = _dist(player.x, player.y, pred_x, pred_y)
                 mate_d = min((_dist(t.x, t.y, pred_x, pred_y)
