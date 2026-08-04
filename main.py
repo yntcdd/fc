@@ -1,5 +1,6 @@
 import pygame
 import math
+import random
 from ai import create_ai, cycle_ai, AI_REGISTRY
 
 pygame.init()
@@ -32,10 +33,14 @@ ai_font = pygame.font.SysFont(None, 24)
 #  (Press 1/2/3/4 during play to toggle AI on/off per player,
 #   press 0 to cycle the AI type of the toggled players.)
 
-PLAYER1_AI = create_ai("playmaker")                    # WASD      – keyboard
-PLAYER2_AI = create_ai("playmaker")                    # Arrows    – keyboard
-PLAYER3_AI = create_ai("striker")                    # IJKL      – keyboard
-PLAYER4_AI = create_ai("striker")    # Numpad    – AI
+PLAYER1_AI = create_ai("goalkeeper")                    # Blue GK       – WASD
+PLAYER2_AI = create_ai("goalkeeper")                    # Red GK        – Arrows
+PLAYER3_AI = create_ai("playmaker")                    # Blue Playmaker – IJKL
+PLAYER4_AI = create_ai("playmaker")                    # Red Playmaker  – Numpad
+PLAYER5_AI = create_ai("playmaker")                    # Blue Playmaker2 – TFGH
+PLAYER6_AI = create_ai("playmaker")                    # Red Playmaker2  – Numpad2
+PLAYER7_AI = create_ai("defender")                     # Blue Defender   – ZXCV
+PLAYER8_AI = create_ai("defender")                     # Red Defender    – ,./
 # ————————————————————————————————————————————————
 
 # Field
@@ -68,8 +73,8 @@ KICK_COOLDOWN_TIME = 20
 score_left = 0
 score_right = 0
 
-# Game timer (60 seconds at 60 FPS)
-GAME_DURATION = 60 * 60
+# Game timer (120 seconds = 2 minutes at 60 FPS)
+GAME_DURATION = 120 * 60
 game_timer = GAME_DURATION
 
 timer_font = pygame.font.SysFont(None, 60)
@@ -152,13 +157,8 @@ class Player:
             self.kick_cooldown -= 1
 
         if pressed[self.kick_key] and self.holding_ball and self.kick_cooldown == 0:
-            # Start at half power on first frame
+            # Only set power if not already set by AI
             if self.kick_power < 0.01:
-                self.kick_power = MAX_KICK_POWER * 0.5
-
-            self.kick_power += KICK_CHARGE_RATE
-
-            if self.kick_power > MAX_KICK_POWER:
                 self.kick_power = MAX_KICK_POWER
 
     def release_kick(self, pressed):
@@ -167,8 +167,15 @@ class Player:
         if not pressed[self.kick_key] and self.kick_power > 0 and self.holding_ball:
             self.holding_ball = False
 
-            ball_vx = self.face_x * self.kick_power
-            ball_vy = self.face_y * self.kick_power
+            # Shot inaccuracy — higher power = more deviation
+            power_ratio = self.kick_power / MAX_KICK_POWER
+            angle_error = random.uniform(-0.12, 0.12) * power_ratio  # ±~7° at max power
+            cos_err = math.cos(angle_error)
+            sin_err = math.sin(angle_error)
+            accurate_vx = self.face_x * self.kick_power
+            accurate_vy = self.face_y * self.kick_power
+            ball_vx = accurate_vx * cos_err - accurate_vy * sin_err
+            ball_vy = accurate_vx * sin_err + accurate_vy * cos_err
 
             self.kick_power = 0
             self.kick_cooldown = KICK_COOLDOWN_TIME
@@ -198,7 +205,11 @@ class Player:
                     interception_timer > 0 and
                     last_kicker is not self and
                     ((self in blue_team) != (last_kicker in blue_team))):
-                    last_kicker.stunned = 60   # 1 sec stun
+                    # Goalkeeper never gets stunned
+                    is_gk = (hasattr(last_kicker, 'ai') and last_kicker.ai is not None
+                             and last_kicker.ai.name == 'Goalkeeper')
+                    if not is_gk:
+                        last_kicker.stunned = 60   # 1 sec stun
                     self.slow_timer = 120      # 2 sec half-speed for interceptor
                 last_kicker = None
                 interception_timer = 0
@@ -220,8 +231,8 @@ class Player:
 
 
 player1 = Player(
-    WIDTH // 4,
-    HEIGHT // 2 - 80,
+    GOAL_WIDTH + 20,
+    HEIGHT // 2,
     BLUE,
     {
         "up": pygame.K_w,
@@ -231,12 +242,12 @@ player1 = Player(
         "sprint": pygame.K_LSHIFT
     },
     pygame.K_SPACE,
-    "Blue 1"
+    "Raya"
 )
 
 player2 = Player(
-    WIDTH * 3 // 4,
-    HEIGHT // 2 - 80,
+    WIDTH - GOAL_WIDTH - 20,
+    HEIGHT // 2,
     RED,
     {
         "up": pygame.K_UP,
@@ -246,12 +257,12 @@ player2 = Player(
         "sprint": pygame.K_RSHIFT
     },
     pygame.K_0,
-    "Red 1"
+    "Courtois"
 )
 
 player3 = Player(
-    WIDTH // 4,
-    HEIGHT // 2 + 80,
+    280,
+    HEIGHT // 2 - 60,
     BLUE,
     {
         "up": pygame.K_i,
@@ -261,12 +272,12 @@ player3 = Player(
         "sprint": pygame.K_u
     },
     pygame.K_o,
-    "Blue 2"
+    "Olise"
 )
 
 player4 = Player(
-    WIDTH * 3 // 4,
-    HEIGHT // 2 + 80,
+    WIDTH - 280,
+    HEIGHT // 2 + 60,
     RED,
     {
         "up": pygame.K_KP8,
@@ -276,18 +287,82 @@ player4 = Player(
         "sprint": pygame.K_KP7
     },
     pygame.K_KP9,
-    "Red 2"
+    "Kane"
 )
 
-blue_team = [player1, player3]
-red_team = [player2, player4]
-all_players = [player1, player2, player3, player4]
+player5 = Player(
+    280,
+    HEIGHT // 2,
+    BLUE,
+    {
+        "up": pygame.K_t,
+        "down": pygame.K_g,
+        "left": pygame.K_f,
+        "right": pygame.K_h,
+        "sprint": pygame.K_r
+    },
+    pygame.K_y,
+    "Bellingham"
+)
+
+player6 = Player(
+    WIDTH - 280,
+    HEIGHT // 2,
+    RED,
+    {
+        "up": pygame.K_KP1,
+        "down": pygame.K_KP2,
+        "left": pygame.K_KP3,
+        "right": pygame.K_KP_ENTER,
+        "sprint": pygame.K_KP_PLUS
+    },
+    pygame.K_KP_MINUS,
+    "Mbappe"
+)
+
+player7 = Player(
+    280,
+    HEIGHT // 2 + 60,
+    BLUE,
+    {
+        "up": pygame.K_z,
+        "down": pygame.K_x,
+        "left": pygame.K_c,
+        "right": pygame.K_v,
+        "sprint": pygame.K_b
+    },
+    pygame.K_n,
+    "Saliba"
+)
+
+player8 = Player(
+    WIDTH - 280,
+    HEIGHT // 2 - 60,
+    RED,
+    {
+        "up": pygame.K_COMMA,
+        "down": pygame.K_PERIOD,
+        "left": pygame.K_SEMICOLON,
+        "right": pygame.K_SLASH,
+        "sprint": pygame.K_QUOTE
+    },
+    pygame.K_LEFTBRACKET,
+    "Cubarsi"
+)
+
+blue_team = [player1, player3, player5, player7]
+red_team = [player2, player4, player6, player8]
+all_players = [player1, player2, player3, player4, player5, player6, player7, player8]
 
 # ——— Assign AIs to players ———
 player1.ai = PLAYER1_AI
 player2.ai = PLAYER2_AI
 player3.ai = PLAYER3_AI
 player4.ai = PLAYER4_AI
+player5.ai = PLAYER5_AI
+player6.ai = PLAYER6_AI
+player7.ai = PLAYER7_AI
+player8.ai = PLAYER8_AI
 
 
 def ai_decision_to_keys(decision, player):
@@ -307,17 +382,29 @@ def reset_positions():
     global ball_vx, ball_vy
     global last_kicker, interception_timer
 
-    player1.x = WIDTH // 4
-    player1.y = HEIGHT // 2 - 80
+    player1.x = GOAL_WIDTH + 20
+    player1.y = HEIGHT // 2
 
-    player2.x = WIDTH * 3 // 4
-    player2.y = HEIGHT // 2 - 80
+    player2.x = WIDTH - GOAL_WIDTH - 20
+    player2.y = HEIGHT // 2
 
-    player3.x = WIDTH // 4
-    player3.y = HEIGHT // 2 + 80
+    player3.x = 280
+    player3.y = HEIGHT // 2 - 60
 
-    player4.x = WIDTH * 3 // 4
-    player4.y = HEIGHT // 2 + 80
+    player4.x = WIDTH - 280
+    player4.y = HEIGHT // 2 + 60
+
+    player5.x = 280
+    player5.y = HEIGHT // 2
+
+    player6.x = WIDTH - 280
+    player6.y = HEIGHT // 2
+
+    player7.x = 280
+    player7.y = HEIGHT // 2 + 60
+
+    player8.x = WIDTH - 280
+    player8.y = HEIGHT // 2 - 60
 
     ball_x = WIDTH // 2
     ball_y = HEIGHT // 2
@@ -334,6 +421,7 @@ def reset_positions():
         p.kick_cooldown = 0
         p.steal_shield = 0
         p.stunned = 0
+        p.slow_timer = 0
 
 
 def draw_field():
@@ -427,7 +515,7 @@ while running:
 
         if event.type == pygame.KEYDOWN:
             # ——— AI toggle keys ————————————————————————
-            #  1-4 : toggle AI on/off for that player
+            #  1-6 : toggle AI on/off for that player
             #  0   : cycle AI type (for players that have AI on)
             # ————————————————————————————————————————————
             if event.key == pygame.K_1:
@@ -438,6 +526,14 @@ while running:
                 player3.ai = cycle_ai(player3.ai)
             elif event.key == pygame.K_4:
                 player4.ai = cycle_ai(player4.ai)
+            elif event.key == pygame.K_5:
+                player5.ai = cycle_ai(player5.ai)
+            elif event.key == pygame.K_6:
+                player6.ai = cycle_ai(player6.ai)
+            elif event.key == pygame.K_7:
+                player7.ai = cycle_ai(player7.ai)
+            elif event.key == pygame.K_8:
+                player8.ai = cycle_ai(player8.ai)
             elif event.key == pygame.K_0:
                 # Cycle AI type for every AI-controlled player
                 for p in all_players:
@@ -526,7 +622,10 @@ while running:
         # Ball pickup — closest player gets it, not first in list order
         if not any(p.holding_ball for p in all_players):
             # Sort by distance to ball so the closest player always wins
-            candidates = [p for p in all_players if p.stunned == 0]
+            # GKs always eligible; others need to not be stunned
+            candidates = [p for p in all_players
+                          if p.stunned == 0 or (hasattr(p, 'ai') and p.ai is not None
+                                                and p.ai.name == 'Goalkeeper')]
             candidates.sort(key=lambda p: math.hypot(ball_x - p.x, ball_y - p.y))
             for p in candidates:
                 p.pickup_ball()
@@ -710,7 +809,7 @@ while running:
     )
     screen.blit(
         timer_text,
-        (WIDTH // 2 - timer_text.get_width() // 2, 30)
+        (WIDTH - timer_text.get_width() - 40, 30)
     )
 
     # Game Over

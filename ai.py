@@ -194,13 +194,50 @@ def _best_pass(player, teammates, opponents, attacking_right):
         blocked = _path_blocked(player.x, player.y, t.x, t.y, opponents, 35)
         # Bonus for teammates ahead of us (further toward opponent goal)
         ahead = (t.x > player.x) if attacking_right else (t.x < player.x)
-        ahead_bonus = 120 if ahead else 0
-        score = (500 - goal_d) * 0.5 + opp_d * 1.5 - me_d * 0.3 + ahead_bonus
+        ahead_bonus = 200 if ahead else -100  # penalize backward passes
+        # Striker bonus — prefer passing to strikers
+        is_striker = (hasattr(t, 'ai') and t.ai is not None and t.ai.name == 'Striker')
+        striker_bonus = 250 if is_striker else 0
+        # Goalkeeper penalty — avoid passing to own GK unless desperate
+        is_gk = (hasattr(t, 'ai') and t.ai is not None and t.ai.name == 'Goalkeeper')
+        gk_penalty = -600 if is_gk else 0
+        score = (500 - goal_d) * 0.5 + opp_d * 1.5 - me_d * 0.3 + ahead_bonus + striker_bonus + gk_penalty
         if blocked:
             score -= 400
         if score > best_score:
             best, best_score = t, score
     return best, best_score
+
+
+def _shot_quality(player, goal_x, goal_y, opponents):
+    """Score how good a shot this player could take RIGHT NOW (0-1000+).
+    Higher = better scoring chance. Blocked shots score very low."""
+    dist_to_goal = _dist(player.x, player.y, goal_x, goal_y)
+    shot_blocked = _path_blocked(player.x, player.y, goal_x, goal_y, opponents, 40)
+    if shot_blocked:
+        return -200  # useless shot
+    opp, opp_dist = _closest_opponent(player.x, player.y, opponents)
+    # Distance factor: 0 at 2000px, ~600 at 0px
+    dist_score = max(0, 600 - dist_to_goal * 0.3)
+    # Pressure factor: less pressured = better shot
+    pressure_score = min(200, opp_dist * 1.5)
+    # Angle: being aligned with goal center helps
+    goal_center_y = goal_y
+    angle_to_center = abs(player.y - goal_center_y) / max(1, dist_to_goal)
+    angle_score = max(0, 100 - angle_to_center * 300)
+    return dist_score + pressure_score + angle_score
+
+
+def _is_one_v_one(player, goal_x, goal_y, opponents):
+    """True if the only opponent between player and goal is the goalkeeper."""
+    outfield_blockers = 0
+    for o in opponents:
+        # Check if opponent is between player and goal
+        if _point_to_segment(o.x, o.y, player.x, player.y, goal_x, goal_y) < 50 + o.radius:
+            is_gk = (hasattr(o, 'ai') and o.ai is not None and o.ai.name == 'Goalkeeper')
+            if not is_gk:
+                outfield_blockers += 1
+    return outfield_blockers == 0
 
 
 def _blend(m1, m2, w2=0.5):
@@ -246,6 +283,7 @@ class StrikerAI(BaseAI):
         self._charge = 0
         self._juke_phase = random.random() * 6.28
         self._run_timer = 0          # frames left on forward run after passing
+        self._dribble_timer = 0      # frames spent in opponent half without shooting
 
     # ------------------------------------------------------------------
     def decide(self, player, ball_x, ball_y, ball_vx, ball_vy,
@@ -267,57 +305,55 @@ class StrikerAI(BaseAI):
         # ——— carrying the ball ————————————————————————————————
         if player.holding_ball:
             sprint = True
-            dist_to_goal = _dist(player.x, player.y, goal_x, goal_y)
             opp, opp_dist = _closest_opponent(player.x, player.y, opponents)
-            shot_blocked = _path_blocked(player.x, player.y, goal_x, goal_y, opponents, 40)
+            past_half = ((attacking_right and player.x > WIDTH // 2) or
+                         (not attacking_right and player.x < WIDTH // 2))
 
-            # ——— Always drive forward toward goal —————————————
-            primary = _move_toward(player.x, player.y, goal_x, goal_y)
-            wall = _wall_push(player.x, player.y, 70)
-            juke_bias = (juke > 0.25, juke < -0.25, False, False)
-            up, down, left, right = _blend(primary, juke_bias, 0.3)
-            up, down, left, right = _blend((up, down, left, right), wall, 0.5)
-            face = _norm(dx_goal, (goal_y - player.y) / max(1, abs(goal_y - player.y)) * 0.3)
+            # Corner targets
+            corner_top = (goal_x, goal_y - GOAL_HEIGHT // 2 + 20)
+            corner_bot = (goal_x, goal_y + GOAL_HEIGHT // 2 - 20)
+            if player.y < goal_y:
+                aim_x, aim_y = corner_top
+            else:
+                aim_x, aim_y = corner_bot
+            face = _norm(aim_x - player.x, aim_y - player.y)
+
+            # Always move forward toward goal
+            forward = _move_toward(player.x, player.y, goal_x, HEIGHT // 2)
+            wall = _wall_push(player.x, player.y, 60)
+            up, down, left, right = _blend(forward, wall, 0.5)
 
             # ——— Corner/wall escape ————————————————————————————
             if _in_corner(player.x, player.y, 120) or _near_any_wall(player.x, player.y, 70):
                 up, down, left, right, face = _escape_corner(player, attacking_right)
-                self._charge = 0; kick = False
+                kick = False
 
-            # ——— Opponent right on us — panic kick ————————————
-            elif opp_dist < 55 and player.kick_cooldown == 0:
-                face = _norm(dx_goal, random.choice([-0.4, -0.15, 0, 0.15, 0.4]))
-                if player.kick_power < 3:
-                    kick = True
-                else:
-                    kick = False
+            # ——— Past halfway — SHOOT IMMEDIATELY —————————————
+            elif past_half:
+                # Try closer corner, if blocked try other, shoot anyway
+                other_x = corner_bot[0] if (aim_y < goal_y) else corner_top[0]
+                other_y = corner_bot[1] if (aim_y < goal_y) else corner_top[1]
+                if _path_blocked(player.x, player.y, aim_x, aim_y, opponents, 35):
+                    if not _path_blocked(player.x, player.y, other_x, other_y, opponents, 35):
+                        aim_x, aim_y = other_x, other_y
+                        face = _norm(aim_x - player.x, aim_y - player.y)
+                player.kick_power = MAX_KICK_POWER
+                kick = False
 
-            # ——— Pass if teammate is wide open —————————————————
-            elif opp_dist < 130:
+            # ——— Before halfway — pass forward or sprint ———————
+            elif player.kick_cooldown == 0:
                 mate, score = _best_pass(player, teammates, opponents, attacking_right)
                 pass_blocked = mate is not None and _path_blocked(
                     player.x, player.y, mate.x, mate.y, opponents, 30)
-                if mate is not None and score > 120 and not pass_blocked:
+                mate_ahead = mate is not None and (
+                    (attacking_right and mate.x > player.x) or
+                    (not attacking_right and mate.x < player.x))
+                if mate is not None and score > 50 and not pass_blocked and mate_ahead:
                     face = _norm(mate.x - player.x, mate.y - player.y)
-                    if player.kick_power < 10:
-                        kick = True
-                    else:
-                        kick = False; self._run_timer = 35
-                else:
-                    # Shoot toward goal — from anywhere on the field
-                    target_power = (0.4 + min(dist_to_goal / 1400, 0.6)) * MAX_KICK_POWER
-                    if player.kick_power < target_power:
-                        kick = True
-                    else:
-                        kick = False
-
-            # ——— Default: always shoot toward goal —————————————
-            else:
-                target_power = (0.45 + min(dist_to_goal / 1300, 0.55)) * MAX_KICK_POWER
-                if player.kick_power < target_power:
-                    kick = True
-                else:
+                    player.kick_power = 10
                     kick = False
+                    if player.kick_cooldown > 0:
+                        self._run_timer = 40
 
         # ——— loose ball ———————————————————————————————————————
         else:
@@ -325,11 +361,13 @@ class StrikerAI(BaseAI):
             pred_x = ball_x + ball_vx * 6
             pred_y = ball_y + ball_vy * 6
 
-            # Check if a teammate has the ball
+            own_goal_x = GOAL_WIDTH if attacking_right else WIDTH - GOAL_WIDTH
+
+            # Check who has the ball
             holder = None
-            for t in teammates:
-                if t.holding_ball:
-                    holder = t
+            for p in teammates + opponents:
+                if p.holding_ball:
+                    holder = p
                     break
 
             # Give-and-go: if we just passed, make a forward run
@@ -339,31 +377,51 @@ class StrikerAI(BaseAI):
                 up, down, left, right = _move_toward(player.x, player.y, run_x, run_y)
                 face = _norm(dx_goal, 0)
 
-            # Teammate has ball and we're marked — move laterally to get open
-            elif holder is not None:
-                # Check if opponent blocks the passing lane from holder to us
-                path_open = not _path_blocked(holder.x, holder.y, player.x, player.y, opponents, 40)
-                opp_near_us, opp_d = _closest_opponent(player.x, player.y, opponents)
-
-                if not path_open or opp_d < 100:
-                    # Marked! Move to the side to create a clear lane
-                    lateral_dir = 1 if player.y < HEIGHT // 2 else -1
-                    # Lateral movement + slight forward push toward opponent goal
-                    target_x = player.x + dx_goal * 40
-                    target_y = player.y + lateral_dir * 90
-                    target_y = max(70, min(HEIGHT - 70, target_y))
-                    up, down, left, right = _move_toward(player.x, player.y, target_x, target_y)
-                    wall = _wall_push(player.x, player.y, 50)
-                    up, down, left, right = _blend((up, down, left, right), wall, 0.5)
+            # Opponent has the ball — CHASE AND STEAL
+            elif holder in opponents:
+                # Run directly at the ball carrier to tackle
+                sprint = True
+                chase_x = ball_x + ball_vx * 4
+                chase_y = ball_y + ball_vy * 4
+                # But don't cross into opponent half too far
+                if attacking_right:
+                    chase_x = min(chase_x, WIDTH // 2 + 60)
                 else:
-                    # Path is clear — stay available for a pass
-                    # Position ourselves ahead of the holder
-                    sup_x = holder.x + dx_goal * 100
-                    sup_y = holder.y + (100 if player.y < HEIGHT // 2 else -100)
-                    sup_y = max(70, min(HEIGHT - 70, sup_y + juke * 50))
-                    up, down, left, right = _move_toward(player.x, player.y, sup_x, sup_y)
-                    wall = _wall_push(player.x, player.y, 50)
-                    up, down, left, right = _blend((up, down, left, right), wall, 0.5)
+                    chase_x = max(chase_x, WIDTH // 2 - 60)
+                chase_y = max(50, min(HEIGHT - 50, chase_y))
+                up, down, left, right = _move_toward(player.x, player.y, chase_x, chase_y)
+                wall = _wall_push(player.x, player.y, 40)
+                up, down, left, right = _blend((up, down, left, right), wall, 0.8)
+                face = _norm(ball_x - player.x, ball_y - player.y)
+
+            # Teammate has ball — get open ahead of them
+            elif holder is not None:
+                # Position ahead of holder toward opponent goal
+                target_x = holder.x + dx_goal * 120
+                target_x = max(60, min(WIDTH - 60, target_x))
+                # Spread vertically from holder to create passing lane
+                if holder.y < HEIGHT // 2:
+                    target_y = holder.y + 130
+                else:
+                    target_y = holder.y - 130
+                target_y = max(70, min(HEIGHT - 70, target_y))
+
+                # Striker: when GK has ball, go LONG for the outlet
+                holder_is_gk = (hasattr(holder, 'ai') and holder.ai is not None
+                                and holder.ai.name == 'Goalkeeper')
+                if holder_is_gk:
+                    target_x = holder.x + dx_goal * 250  # push far forward
+                    target_y = HEIGHT // 2 + (100 if player.y < HEIGHT // 2 else -100)
+
+                # If lane blocked, shift to other side
+                path_open = not _path_blocked(holder.x, holder.y, player.x, player.y, opponents, 40)
+                if not path_open:
+                    target_y = HEIGHT - target_y
+
+                sprint = _dist(player.x, player.y, target_x, target_y) > 100
+                up, down, left, right = _move_toward(player.x, player.y, target_x, target_y)
+                wall = _wall_push(player.x, player.y, 50)
+                up, down, left, right = _blend((up, down, left, right), wall, 0.5)
 
             else:
                 our_d = _dist(player.x, player.y, pred_x, pred_y)
@@ -375,9 +433,10 @@ class StrikerAI(BaseAI):
                     wall = _wall_push(player.x, player.y, 50)
                     up, down, left, right = _blend(move, wall, 0.5)
                 else:
-                    sup_x = (ball_x + goal_x) / 2
-                    sup_y = HEIGHT // 2 + (80 if player.y < HEIGHT // 2 else -80)
-                    up, down, left, right = _move_toward(player.x, player.y, sup_x, sup_y)
+                    # Stay in midfield, don't rush to opponent net
+                    mid_x = WIDTH // 2 + dx_goal * 150
+                    sup_y = HEIGHT // 2 + (100 if player.y < HEIGHT // 2 else -100)
+                    up, down, left, right = _move_toward(player.x, player.y, mid_x, sup_y)
 
             face = _norm(ball_x - player.x, ball_y - player.y)
             self._charge = 0; kick = False
@@ -395,6 +454,7 @@ class StrikerAI(BaseAI):
         self._was_kicking = False
         self._charge = 0
         self._run_timer = 0
+        self._dribble_timer = 0
 
 
 # ================================================================
@@ -413,6 +473,7 @@ class PlaymakerAI(BaseAI):
         self._juke_phase = random.random() * 6.28
         self._run_timer = 0
         self._last_passer = None     # teammate who just passed to us (for 1-2 return)
+        self._dribble_timer = 0      # frames spent in opponent half without shooting
 
     # ------------------------------------------------------------------
     def decide(self, player, ball_x, ball_y, ball_vx, ball_vy,
@@ -452,130 +513,101 @@ class PlaymakerAI(BaseAI):
         # ——— carrying ——————————————————————————————————————————
         if player.holding_ball:
             sprint = True
-            dist_to_goal = _dist(player.x, player.y, goal_x, goal_y)
             opp, opp_dist = _closest_opponent(player.x, player.y, opponents)
+            past_half = ((attacking_right and player.x > WIDTH // 2) or
+                         (not attacking_right and player.x < WIDTH // 2))
 
-            # ════════════════════════════════════════════════════
-            #  CORNER / WALL ESCAPE
-            # ════════════════════════════════════════════════════
+            # Corner targets
+            corner_top = (goal_x, goal_y - GOAL_HEIGHT // 2 + 20)
+            corner_bot = (goal_x, goal_y + GOAL_HEIGHT // 2 - 20)
+            if player.y < goal_y:
+                aim_x, aim_y = corner_top
+            else:
+                aim_x, aim_y = corner_bot
+            face = _norm(aim_x - player.x, aim_y - player.y)
+
+            # Always move forward toward goal
+            forward = _move_toward(player.x, player.y, goal_x, HEIGHT // 2)
+            wall = _wall_push(player.x, player.y, 60)
+            up, down, left, right = _blend(forward, wall, 0.5)
+
+            # ——— Corner / wall escape ———————————————————————————
             if _in_corner(player.x, player.y, 130) or _near_any_wall(player.x, player.y, 80):
                 up, down, left, right, face = _escape_corner(player, attacking_right)
-                self._charge = 0; kick = False
+                kick = False
 
-            # ════════════════════════════════════════════════════
-            #  1) Return 1-2 pass
-            # ════════════════════════════════════════════════════
-            elif self._last_passer is not None and _dist(player.x, player.y, self._last_passer.x, self._last_passer.y) < 500:
-                mate = self._last_passer
-                blocked = _path_blocked(player.x, player.y, mate.x, mate.y, opponents, 30)
-                if not mate.holding_ball and not blocked:
-                    face = _norm(mate.x - player.x, mate.y - player.y)
-                    d = _dist(player.x, player.y, mate.x, mate.y)
-                    target_power = min(15, d / 4 + 5)
-                    if player.kick_power < target_power:
-                        kick = True
-                    else:
-                        kick = False; self._run_timer = 30; self._last_passer = None
-                    move = _move_toward(player.x, player.y, mate.x, mate.y)
-                    wall = _wall_push(player.x, player.y, 70)
-                    up, down, left, right = _blend(move, wall, 0.5)
-                else:
-                    self._last_passer = None
+            # ——— Past halfway — SHOOT IMMEDIATELY —————————————
+            elif past_half:
+                other_x = corner_bot[0] if (aim_y < goal_y) else corner_top[0]
+                other_y = corner_bot[1] if (aim_y < goal_y) else corner_top[1]
+                if _path_blocked(player.x, player.y, aim_x, aim_y, opponents, 35):
+                    if not _path_blocked(player.x, player.y, other_x, other_y, opponents, 35):
+                        aim_x, aim_y = other_x, other_y
+                        face = _norm(aim_x - player.x, aim_y - player.y)
+                player.kick_power = MAX_KICK_POWER
+                kick = False
 
-            # ════════════════════════════════════════════════════
-            #  2) Emergency kick
-            # ════════════════════════════════════════════════════
-            elif opp_dist < 55 and player.kick_cooldown == 0:
-                face = _norm(dx_goal, 0)
-                if player.kick_power < 3:
-                    kick = True
-                else:
-                    kick = False
-                move = _move_toward(player.x, player.y, goal_x, goal_y)
-                wall = _wall_push(player.x, player.y, 80)
-                up, down, left, right = _blend(move, wall, 0.6)
-
-            # ════════════════════════════════════════════════════
-            #  3) Pass if open lane, shoot if shot lane clear
-            # ════════════════════════════════════════════════════
-            else:
-                shot_blocked = _path_blocked(player.x, player.y, goal_x, goal_y, opponents, 45)
+            # ——— Before halfway — pass forward or sprint ———————
+            elif player.kick_cooldown == 0:
                 mate, score = _best_pass(player, teammates, opponents, attacking_right)
                 pass_blocked = mate is not None and _path_blocked(
                     player.x, player.y, mate.x, mate.y, opponents, 30)
-                # Pass only if teammate is open and path isn't blocked
-                if mate is not None and score > 120 and not pass_blocked:
+                mate_ahead = mate is not None and (
+                    (attacking_right and mate.x > player.x) or
+                    (not attacking_right and mate.x < player.x))
+                if mate is not None and score > 50 and not pass_blocked and mate_ahead:
                     face = _norm(mate.x - player.x, mate.y - player.y)
-                    self._charge = 0
-                    d = _dist(player.x, player.y, mate.x, mate.y)
-                    target_power = min(15, d / 4 + 5)
-                    if player.kick_power < target_power:
-                        kick = True
-                    else:
-                        kick = False; self._run_timer = 30
-                    move = _move_toward(player.x, player.y, mate.x, mate.y)
-                    wall = _wall_push(player.x, player.y, 70)
-                    up, down, left, right = _blend(move, wall, 0.5)
-                # Shoot only if shot lane is clear and in range
-                elif not shot_blocked and dist_to_goal < 900:
-                    face = _norm(dx_goal, (goal_y - player.y) / max(1, abs(goal_y - player.y)) * 0.2)
-                    self._charge = 0
-                    target_power = (0.3 + min(dist_to_goal / 2000, 0.5)) * MAX_KICK_POWER
-                    if player.kick_power < target_power:
-                        kick = True
-                    else:
-                        kick = False
-                    move = _move_toward(player.x, player.y, goal_x, goal_y)
-                    wall = _wall_push(player.x, player.y, 70)
-                    up, down, left, right = _blend(move, wall, 0.5)
-                # Marked — dribble away
-                elif opp_dist < 100:
-                    away_x = player.x - (opp.x - player.x)
-                    away_y = player.y - (opp.y - player.y)
-                    up, down, left, right = _move_toward(player.x, player.y, away_x, away_y)
-                    wall = _wall_push(player.x, player.y, 80)
-                    up, down, left, right = _blend((up, down, left, right), wall, 0.6)
-                    face = _norm(dx_goal, juke * 0.4)
-                    self._charge = 0; kick = False
-                # Out of range — dribble closer or laterally
-                else:
-                    face = _norm(dx_goal, juke * 0.4)
-                    self._charge = 0; kick = False
-                    path_clear = not _path_blocked(player.x, player.y, goal_x, goal_y, opponents, 50)
-                    if path_clear:
-                        move = _move_toward(player.x, player.y, goal_x, goal_y)
-                    elif juke > 0:
-                        move = (True, False, False, False)
-                    else:
-                        move = (False, True, False, False)
-                    juke_bias = (juke > 0.2, juke < -0.2, False, False)
-                    wall = _wall_push(player.x, player.y, 70)
-                    up, down, left, right = _blend(move, juke_bias, 0.2)
-                    up, down, left, right = _blend((up, down, left, right), wall, 0.5)
+                    player.kick_power = 10
+                    kick = False
+                    if player.kick_cooldown > 0:
+                        self._run_timer = 30
 
-        # ——— teammate has ball — get open —————————————————————
+        # ——— teammate has ball — get open ahead of them ——————————
         elif holder in teammates:
             self._last_passer = None
-            # Position ourselves for a pass: stay close to ball carrier
-            sup_x = holder.x + (120 if attacking_right else -120)
-            sup_y = holder.y + (100 if holder.y < HEIGHT // 2 else -100)
-            sup_y += juke * 60
+            # Position ahead of holder toward opponent goal
+            sup_x = holder.x + (100 if attacking_right else -100)
+            sup_x = max(100, min(WIDTH - 100, sup_x))
+            # Spread vertically from holder
+            if holder.y < HEIGHT // 2:
+                sup_y = holder.y + 130
+            else:
+                sup_y = holder.y - 130
             sup_y = max(70, min(HEIGHT - 70, sup_y))
 
-            sprint = _dist(player.x, player.y, sup_x, sup_y) > 150
+            # Playmaker: when GK has ball, come SHORT as safe option
+            holder_is_gk = (hasattr(holder, 'ai') and holder.ai is not None
+                            and holder.ai.name == 'Goalkeeper')
+            if holder_is_gk:
+                sup_x = holder.x + (60 if attacking_right else -60)  # stay close
+                sup_y = HEIGHT // 2 + (40 if player.y < HEIGHT // 2 else -40)
+
+            # If lane blocked, shift to other side
+            path_open = not _path_blocked(holder.x, holder.y, player.x, player.y, opponents, 40)
+            if not path_open:
+                sup_y = HEIGHT - sup_y
+
+            sprint = _dist(player.x, player.y, sup_x, sup_y) > 100
             up, down, left, right = _move_toward(player.x, player.y, sup_x, sup_y)
+            wall = _wall_push(player.x, player.y, 50)
+            up, down, left, right = _blend((up, down, left, right), wall, 0.5)
             face = _norm(dx_goal, 0)
             self._charge = 0; kick = False
 
-        # ——— opponent has ball — defend ———————————————————————
+        # ——— opponent has ball — CHASE AND STEAL ——————————————
         elif holder in opponents:
             self._last_passer = None
-            def_x = (ball_x + own_goal_x) / 2
-            def_y = (ball_y + HEIGHT // 2) / 2 + juke * 60
-            def_y = max(60, min(HEIGHT - 60, def_y))
-
-            sprint = _dist(player.x, player.y, def_x, def_y) > 160
-            up, down, left, right = _move_toward(player.x, player.y, def_x, def_y)
+            sprint = True
+            chase_x = ball_x + ball_vx * 4
+            chase_y = ball_y + ball_vy * 4
+            if attacking_right:
+                chase_x = min(chase_x, WIDTH // 2 + 60)
+            else:
+                chase_x = max(chase_x, WIDTH // 2 - 60)
+            chase_y = max(50, min(HEIGHT - 50, chase_y))
+            up, down, left, right = _move_toward(player.x, player.y, chase_x, chase_y)
+            wall = _wall_push(player.x, player.y, 40)
+            up, down, left, right = _blend((up, down, left, right), wall, 0.8)
             face = _norm(ball_x - player.x, ball_y - player.y)
             self._charge = 0; kick = False
 
@@ -624,6 +656,7 @@ class PlaymakerAI(BaseAI):
         self._charge = 0
         self._run_timer = 0
         self._last_passer = None
+        self._dribble_timer = 0
 
 
 # ================================================================
@@ -631,8 +664,8 @@ class PlaymakerAI(BaseAI):
 # ================================================================
 
 class GoalkeeperAI(BaseAI):
-    """Sweeper-keeper — cuts angles, rushes out, clears to teammates
-    or upfield corners.  Stays well away from walls."""
+    """Box-bound keeper — never leaves the penalty area, clears to wings
+    or to open teammates."""
 
     name = "Goalkeeper"
 
@@ -652,73 +685,54 @@ class GoalkeeperAI(BaseAI):
         own_goal_y = HEIGHT // 2
         goal_x = WIDTH - GOAL_WIDTH if attacking_right else GOAL_WIDTH
 
-        # Home: cut the angle between ball and own goal
-        home_x = own_goal_x + (70 if attacking_right else -70)
-        angle_y = own_goal_y + (ball_y - own_goal_y) * 0.35
-        home_y = max(GOAL_HEIGHT // 2 + 50,
-                     min(HEIGHT - GOAL_HEIGHT // 2 - 50, angle_y))
-        # Never hug the wall
-        home_y = max(80, min(HEIGHT - 80, home_y))
+        # Penalty box boundaries
+        if attacking_right:
+            box_left, box_right = 0, 250
+        else:
+            box_left, box_right = WIDTH - 250, WIDTH
+        box_top = HEIGHT // 2 - 200
+        box_bot = HEIGHT // 2 + 200
+
+        # Home: move freely within the full penalty box
+        home_x = own_goal_x + (130 if attacking_right else -130)
+        home_x = max(box_left + 5, min(box_right - 5, home_x))
+        # Track ball aggressively — 60% of ball's vertical position
+        angle_y = own_goal_y + (ball_y - own_goal_y) * 0.6
+        home_y = max(box_top + 5, min(box_bot - 5, angle_y))
 
         # ——— carrying ——————————————————————————————————————————
         if player.holding_ball:
-            # Wall escape first
-            if _in_corner(player.x, player.y, 130) or _near_any_wall(player.x, player.y, 80):
-                up, down, left, right, face = _escape_corner(player, attacking_right)
-                self._charge = 0; kick = False
+            sprint = True
+            mate, score = _best_pass(player, teammates, opponents, attacking_right)
+            if mate is not None and score > 200:
+                face = _norm(mate.x - player.x, mate.y - player.y)
             else:
-                mate, score = _best_pass(player, teammates, opponents, attacking_right)
-                if mate is not None and score > -120:
-                    face = _norm(mate.x - player.x, mate.y - player.y)
-                else:
-                    # No pass — clear to safest direction
-                    face = _find_safe_clearance(player.x, player.y, opponents, attacking_right)
-
-                kick = True
-                self._charge += 1
-                if self._charge > MAX_KICK_POWER / KICK_CHARGE_RATE * 0.75:
-                    kick = False; self._charge = 0
-                wall = _wall_push(player.x, player.y, 100)
-                up, down, left, right = wall
+                wing_y = box_top + 20 if player.y < own_goal_y else box_bot - 20
+                wing_x = own_goal_x + (230 if attacking_right else -230)
+                face = _norm(wing_x - player.x, wing_y - player.y)
+            player.kick_power = MAX_KICK_POWER
+            kick = False
+            up, down, left, right = _move_toward(player.x, player.y, home_x, home_y)
 
         # ——— loose / defending ————————————————————————————————
         else:
+            sprint = True
             dist_to_ball = _dist(player.x, player.y, ball_x, ball_y)
-            dist_to_home = _dist(player.x, player.y, home_x, home_y)
-
             ball_danger = (
-                abs(ball_x - own_goal_x) < 400 and
+                abs(ball_x - own_goal_x) < 380 and
                 abs(ball_y - own_goal_y) < GOAL_HEIGHT // 2 + 120
             )
 
-            if ball_danger and dist_to_ball < 280:
-                sprint = True
-                ix = max(30, min(WIDTH - 30, ball_x + ball_vx * 5))
-                iy = max(30, min(HEIGHT - 30, ball_y + ball_vy * 5))
-                move = _move_toward(player.x, player.y, ix, iy)
-                wall = _wall_push(player.x, player.y, 40)
-                up, down, left, right = _blend(move, wall, 0.4)
+            if ball_danger and dist_to_ball < 200:
+                ix = max(box_left + 5, min(box_right - 5, ball_x + ball_vx * 4))
+                iy = max(box_top + 5, min(box_bot - 5, ball_y + ball_vy * 4))
+                up, down, left, right = _move_toward(player.x, player.y, ix, iy)
                 face = _norm(ball_x - player.x, ball_y - player.y)
-
-            elif dist_to_ball < 200:
-                sprint = True
-                move = _move_toward(player.x, player.y, ball_x, ball_y)
-                wall = _wall_push(player.x, player.y, 50)
-                up, down, left, right = _blend(move, wall, 0.5)
-                face = _norm(ball_x - player.x, ball_y - player.y)
-
-            elif dist_to_home > 15:
-                move = _move_toward(player.x, player.y, home_x, home_y)
-                wall = _wall_push(player.x, player.y, 50)
-                up, down, left, right = _blend(move, wall, 0.5)
-                face = _norm(ball_x - player.x, ball_y - player.y)
-
             else:
-                wall = _wall_push(player.x, player.y, 60)
-                up, down, left, right = wall
+                up, down, left, right = _move_toward(player.x, player.y, home_x, home_y)
                 face = _norm(ball_x - player.x, ball_y - player.y)
 
-            self._charge = 0; kick = False
+            kick = False
 
         decision = {
             "up": up, "down": down, "left": left, "right": right,
@@ -919,6 +933,117 @@ class TricksterAI(BaseAI):
 
 
 # ================================================================
+#  AI: Defender
+# ================================================================
+
+class DefenderAI(BaseAI):
+    """Active defender — constantly moves with the ball, cuts off angles,
+    mirrors attackers, wins possession, clears danger."""
+
+    name = "Defender"
+
+    def __init__(self):
+        self._was_kicking = False
+        self._juke_phase = random.random() * 6.28
+
+    def decide(self, player, ball_x, ball_y, ball_vx, ball_vy,
+               teammates, opponents, attacking_right):
+        up = down = left = right = False
+        sprint = True  # always sprinting
+        kick = False
+        face = None
+
+        own_goal_x = GOAL_WIDTH if attacking_right else WIDTH - GOAL_WIDTH
+        own_goal_y = HEIGHT // 2
+        dx_goal = 1 if attacking_right else -1
+        half_x = WIDTH // 2
+
+        self._juke_phase += 0.2
+        juke = math.sin(self._juke_phase)
+
+        # Track ball holder
+        holder = None
+        for p in teammates + opponents:
+            if p.holding_ball:
+                holder = p
+                break
+
+        # ——— carrying — pass or clear immediately ————————————
+        if player.holding_ball:
+            mate, score = _best_pass(player, teammates, opponents, attacking_right)
+            pass_blocked = mate is not None and _path_blocked(
+                player.x, player.y, mate.x, mate.y, opponents, 30)
+            mate_ok = (mate is not None and score > 50 and not pass_blocked
+                       and not (hasattr(mate, 'ai') and mate.ai is not None
+                                and mate.ai.name == 'Goalkeeper'))
+            if mate_ok:
+                face = _norm(mate.x - player.x, mate.y - player.y)
+                player.kick_power = MAX_KICK_POWER
+                kick = False
+            else:
+                wing_y = 80 if player.y < HEIGHT // 2 else HEIGHT - 80
+                face = _norm(dx_goal, (wing_y - player.y) / max(1, abs(wing_y - player.y)) * 0.5)
+                player.kick_power = MAX_KICK_POWER
+                kick = False
+            # Move toward own goal
+            safe_x = own_goal_x + dx_goal * 100
+            if attacking_right:
+                safe_x = min(safe_x, half_x - 30)
+            else:
+                safe_x = max(safe_x, half_x + 30)
+            up, down, left, right = _move_toward(player.x, player.y, safe_x, own_goal_y)
+
+        # ——— opponent has ball — chase ball directly —————————
+        elif holder in opponents:
+            target_x = ball_x
+            target_y = ball_y
+            if attacking_right:
+                target_x = min(target_x, half_x - 5)
+            else:
+                target_x = max(target_x, half_x + 5)
+            target_y = max(35, min(HEIGHT - 35, target_y))
+            up, down, left, right = _move_toward(player.x, player.y, target_x, target_y)
+            face = _norm(ball_x - player.x, ball_y - player.y)
+
+        # ——— teammate has ball — track ball —————————————————
+        elif holder in teammates:
+            target_x = ball_x
+            target_y = ball_y
+            if attacking_right:
+                target_x = min(target_x, half_x - 20)
+            else:
+                target_x = max(target_x, half_x + 20)
+            target_y = max(40, min(HEIGHT - 40, target_y))
+            up, down, left, right = _move_toward(player.x, player.y, target_x, target_y)
+            face = _norm(ball_x - player.x, ball_y - player.y)
+
+        # ——— loose ball — chase it ———————————————————————————
+        else:
+            target_x = ball_x
+            target_y = ball_y
+            if attacking_right:
+                target_x = min(target_x, half_x - 5)
+            else:
+                target_x = max(target_x, half_x + 5)
+            target_y = max(35, min(HEIGHT - 35, target_y))
+            up, down, left, right = _move_toward(player.x, player.y, target_x, target_y)
+            face = _norm(ball_x - player.x, ball_y - player.y)
+
+        decision = {
+            "up": up, "down": down, "left": left, "right": right,
+            "sprint": sprint, "kick": kick, "face": face,
+        }
+        if self._was_kicking and not kick and player.kick_power > 0:
+            decision["kick"] = "release"
+        self._was_kicking = kick
+        return decision
+
+    def reset(self):
+        self._was_kicking = False
+        self._juke_phase = random.random() * 6.28
+
+
+# ================================================================
 #  Registry
 # ================================================================
 
@@ -927,6 +1052,7 @@ AI_REGISTRY = {
     "playmaker":  PlaymakerAI,
     "goalkeeper": GoalkeeperAI,
     "trickster":  TricksterAI,
+    "defender":   DefenderAI,
 }
 
 
