@@ -36,7 +36,7 @@ ai_font = pygame.font.SysFont(None, 24)
 #   press 0 to cycle the AI type of every AI-controlled player.)
 
 # ── Blue team (attacking right) ──────────────────────────────────────────────
-PLAYER1_AI = create_ai("goalkeeper")                    # Blue GK         – WASD
+PLAYER1_AI = create_ai("custom_gk")                    # Blue GK         – WASD
 PLAYER3_AI = create_ai("custom_pm")                    # Blue Playmaker1 – IJKL
 PLAYER5_AI = create_ai("custom_pm")                    # Blue Playmaker2 – TFGH
 PLAYER7_AI = create_ai("custom_def")                   # Blue Defender   – ZXCV
@@ -495,18 +495,52 @@ game_state = "playing"
 goal_timer = 0
 countdown_timer = 0
 
+# ── Replay system ─────────────────────────────────────────────────
+REPLAY_MAX_FRAMES = 60          # record last 1 second at 60 FPS
+REPLAY_SPEED_DIV = 4            # 25% speed → each recorded frame shown 4 times
+replay_buffer = []              # list of dicts, newest at the end
+replay_index = 0                # which recorded frame we're showing
+replay_subframe = 0             # 0..REPLAY_SPEED_DIV-1, counts how long we've shown current frame
+replay_goal_team = None         # "left" or "right" — who scored
+
+
+def record_frame():
+    """Snapshot every player and the ball into the circular replay buffer."""
+    global replay_buffer
+    frame = {
+        "players": [],
+        "ball": (ball_x, ball_y),
+    }
+    for p in all_players:
+        frame["players"].append({
+            "x": p.x, "y": p.y,
+            "face_x": p.face_x, "face_y": p.face_y,
+            "holding": p.holding_ball,
+            "stunned": p.stunned,
+            "color": p.color,
+            "name": p.display_name,
+        })
+    replay_buffer.append(frame)
+    # Keep only the last N frames
+    if len(replay_buffer) > REPLAY_MAX_FRAMES:
+        replay_buffer.pop(0)
+
 
 def goal_scored(team):
     global score_left, score_right
     global game_state, goal_timer
+    global replay_index, replay_subframe, replay_goal_team
 
     if team == "left":
         score_left += 1
     else:
         score_right += 1
 
-    game_state = "goal"
-    goal_timer = 180
+    # Capture replay buffer before resetting
+    replay_index = 0
+    replay_subframe = 0
+    replay_goal_team = team
+    game_state = "replay"
 
     reset_positions()
 
@@ -728,6 +762,21 @@ while running:
             ball_x = WIDTH - ball_radius
             ball_vx *= -1
 
+        # Record frame for goal replay (only if still playing — goal_scored may have fired)
+        if game_state == "playing":
+            record_frame()
+
+    elif game_state == "replay":
+        # Slow-motion replay: advance one recorded frame every REPLAY_SPEED_DIV ticks
+        replay_subframe += 1
+        if replay_subframe >= REPLAY_SPEED_DIV:
+            replay_subframe = 0
+            replay_index += 1
+        if replay_index >= len(replay_buffer):
+            # Replay finished → normal goal sequence
+            game_state = "goal"
+            goal_timer = 180
+
     elif game_state == "goal":
 
         goal_timer -= 1
@@ -746,59 +795,86 @@ while running:
     # Draw field
     draw_field()
 
-    # Draw players
-    for p in all_players:
-        p.draw()
-        # Player name
-        name_label = ai_font.render(p.display_name, True, WHITE)
-        screen.blit(
-            name_label,
-            (p.x - name_label.get_width() // 2, p.y - p.radius - 22),
+    # ── Draw players & ball (replay or live) ──────────────────────────
+    if game_state == "replay" and replay_index < len(replay_buffer):
+        frame = replay_buffer[replay_index]
+        # Draw recorded player positions
+        for pd in frame["players"]:
+            pygame.draw.circle(
+                screen,
+                pd["color"],
+                (int(pd["x"]), int(pd["y"])),
+                20,  # player radius
+            )
+            name_label = ai_font.render(pd["name"], True, WHITE)
+            screen.blit(
+                name_label,
+                (pd["x"] - name_label.get_width() // 2, pd["y"] - 20 - 22),
+            )
+            if pd["stunned"] > 0:
+                stun_label = ai_font.render("!", True, (255, 80, 80))
+                screen.blit(stun_label,
+                            (pd["x"] - stun_label.get_width() // 2, pd["y"] - 20 - 38))
+        # Draw recorded ball position
+        pygame.draw.circle(
+            screen,
+            ORANGE,
+            (int(frame["ball"][0]), int(frame["ball"][1])),
+            ball_radius
         )
-        # Stunned indicator — just a mark showing they can't pick up the ball
-        if p.stunned > 0:
-            stun_label = ai_font.render("!", True, (255, 80, 80))
-            screen.blit(stun_label,
-                        (p.x - stun_label.get_width() // 2, p.y - p.radius - 38))
-
-    # Draw ball
-    pygame.draw.circle(
-        screen,
-        ORANGE,
-        (int(ball_x), int(ball_y)),
-        ball_radius
-    )
-
-    # Kick bar for any player holding the ball
-    for p in all_players:
-        if p.holding_ball:
-            bar_width = 60
-            bar_height = 8
-
-            bar_x = p.x - bar_width / 2
-            bar_y = p.y + p.radius + 10
-
-            pygame.draw.rect(
-                screen,
-                BLACK,
-                (bar_x, bar_y, bar_width, bar_height)
+    else:
+        for p in all_players:
+            p.draw()
+            # Player name
+            name_label = ai_font.render(p.display_name, True, WHITE)
+            screen.blit(
+                name_label,
+                (p.x - name_label.get_width() // 2, p.y - p.radius - 22),
             )
+            # Stunned indicator — just a mark showing they can't pick up the ball
+            if p.stunned > 0:
+                stun_label = ai_font.render("!", True, (255, 80, 80))
+                screen.blit(stun_label,
+                            (p.x - stun_label.get_width() // 2, p.y - p.radius - 38))
 
-            power = p.kick_power / MAX_KICK_POWER
-            power = min(power, 1)
+        # Draw ball
+        pygame.draw.circle(
+            screen,
+            ORANGE,
+            (int(ball_x), int(ball_y)),
+            ball_radius
+        )
 
-            if power < 0.5:
-                r = int(255 * power * 2)
-                g = 255
-            else:
-                r = 255
-                g = int(255 * (1 - (power - 0.5) * 2))
+        # Kick bar for any player holding the ball
+        for p in all_players:
+            if p.holding_ball:
+                bar_width = 60
+                bar_height = 8
 
-            pygame.draw.rect(
-                screen,
-                (r, g, 0),
-                (bar_x, bar_y, bar_width * power, bar_height)
-            )
+                bar_x = p.x - bar_width / 2
+                bar_y = p.y + p.radius + 10
+
+                pygame.draw.rect(
+                    screen,
+                    BLACK,
+                    (bar_x, bar_y, bar_width, bar_height)
+                )
+
+                power = p.kick_power / MAX_KICK_POWER
+                power = min(power, 1)
+
+                if power < 0.5:
+                    r = int(255 * power * 2)
+                    g = 255
+                else:
+                    r = 255
+                    g = int(255 * (1 - (power - 0.5) * 2))
+
+                pygame.draw.rect(
+                    screen,
+                    (r, g, 0),
+                    (bar_x, bar_y, bar_width * power, bar_height)
+                )
 
     # Score
     score_text = score_font.render(
@@ -836,6 +912,21 @@ while running:
             )
         )
 
+    # Replay overlay
+    if game_state == "replay":
+        replay_text = font.render("REPLAY", True, (255, 255, 255))
+        # Dark semi-transparent backdrop for readability
+        backdrop = pygame.Surface((replay_text.get_width() + 40, replay_text.get_height() + 20))
+        backdrop.set_alpha(140)
+        backdrop.fill((0, 0, 0))
+        screen.blit(backdrop,
+                    (WIDTH // 2 - backdrop.get_width() // 2,
+                     HEIGHT // 2 - backdrop.get_height() // 2 - 80))
+        screen.blit(
+            replay_text,
+            (WIDTH // 2 - replay_text.get_width() // 2,
+             HEIGHT // 2 - replay_text.get_height() // 2 - 80)
+        )
     # Goal message
     if game_state == "goal":
 
