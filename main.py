@@ -2,6 +2,7 @@ import pygame
 import math
 import random
 from ai import create_ai, cycle_ai, AI_REGISTRY
+import custom_ai  # registers "custom_gk", "custom_pm", "custom_def", "custom_str"
 
 pygame.init()
 
@@ -29,18 +30,27 @@ ai_font = pygame.font.SysFont(None, 24)
 # ————————————————————————————————————————————————
 #  Set each player to None (keyboard) or an AI instance.
 #  Use create_ai("name") to get an instance by name.
-#  Available AIs: "striker", "playmaker", "goalkeeper", "trickster"
-#  (Press 1/2/3/4 during play to toggle AI on/off per player,
-#   press 0 to cycle the AI type of the toggled players.)
+#  OLD AIs : "goalkeeper"  "playmaker"  "striker"  "defender"  "trickster"
+#  NEW AIs : "custom_gk"   "custom_pm"  "custom_def"  "custom_str"
+#  (Press 1-8 during play to toggle AI on/off per player,
+#   press 0 to cycle the AI type of every AI-controlled player.)
 
-PLAYER1_AI = create_ai("goalkeeper")                    # Blue GK       – WASD
-PLAYER2_AI = create_ai("goalkeeper")                    # Red GK        – Arrows
-PLAYER3_AI = create_ai("playmaker")                    # Blue Playmaker – IJKL
-PLAYER4_AI = create_ai("playmaker")                    # Red Playmaker  – Numpad
-PLAYER5_AI = create_ai("playmaker")                    # Blue Playmaker2 – TFGH
+# ── Blue team (attacking right) ──────────────────────────────────────────────
+PLAYER1_AI = create_ai("goalkeeper")                    # Blue GK         – WASD
+PLAYER3_AI = create_ai("custom_pm")                    # Blue Playmaker1 – IJKL
+PLAYER5_AI = create_ai("custom_pm")                    # Blue Playmaker2 – TFGH
+PLAYER7_AI = create_ai("custom_def")                   # Blue Defender   – ZXCV
+
+# ── Red team (attacking left) ─────────────────────────────────────────────────
+PLAYER2_AI = create_ai("goalkeeper")                    # Red GK          – Arrows
+PLAYER4_AI = create_ai("playmaker")                    # Red Playmaker1  – Numpad
 PLAYER6_AI = create_ai("playmaker")                    # Red Playmaker2  – Numpad2
-PLAYER7_AI = create_ai("defender")                     # Blue Defender   – ZXCV
-PLAYER8_AI = create_ai("defender")                     # Red Defender    – ,./
+PLAYER8_AI = create_ai("defender")                   # Red Defender    – ,./
+
+# ── Swap any line to mix old/new AIs, e.g.: ──────────────────────────────────
+#   PLAYER3_AI = create_ai("striker")     # old aggressive striker
+#   PLAYER7_AI = create_ai("trickster")   # old trickster in place of defender
+#   PLAYER1_AI = create_ai("goalkeeper")  # original keeper AI
 # ————————————————————————————————————————————————
 
 # Field
@@ -207,7 +217,7 @@ class Player:
                     ((self in blue_team) != (last_kicker in blue_team))):
                     # Goalkeeper never gets stunned
                     is_gk = (hasattr(last_kicker, 'ai') and last_kicker.ai is not None
-                             and last_kicker.ai.name == 'Goalkeeper')
+                             and last_kicker.ai.name in ('Goalkeeper', 'Custom GK'))
                     if not is_gk:
                         last_kicker.stunned = 60   # 1 sec stun
                     self.slow_timer = 120      # 2 sec half-speed for interceptor
@@ -625,7 +635,7 @@ while running:
             # GKs always eligible; others need to not be stunned
             candidates = [p for p in all_players
                           if p.stunned == 0 or (hasattr(p, 'ai') and p.ai is not None
-                                                and p.ai.name == 'Goalkeeper')]
+                                                and p.ai.name in ('Goalkeeper', 'Custom GK'))]
             candidates.sort(key=lambda p: math.hypot(ball_x - p.x, ball_y - p.y))
             for p in candidates:
                 p.pickup_ball()
