@@ -406,12 +406,12 @@ class StrikerAI(BaseAI):
                     target_y = holder.y - 130
                 target_y = max(70, min(HEIGHT - 70, target_y))
 
-                # Striker: when GK has ball, go LONG for the outlet
+                # If holder is our GK, come back more to receive outlet
                 holder_is_gk = (hasattr(holder, 'ai') and holder.ai is not None
                                 and holder.ai.name == 'Goalkeeper')
                 if holder_is_gk:
-                    target_x = holder.x + dx_goal * 250  # push far forward
-                    target_y = HEIGHT // 2 + (100 if player.y < HEIGHT // 2 else -100)
+                    target_x = holder.x + dx_goal * 180
+                    target_y = HEIGHT // 2 + (80 if player.y < HEIGHT // 2 else -80)
 
                 # If lane blocked, shift to other side
                 path_open = not _path_blocked(holder.x, holder.y, player.x, player.y, opponents, 40)
@@ -575,12 +575,12 @@ class PlaymakerAI(BaseAI):
                 sup_y = holder.y - 130
             sup_y = max(70, min(HEIGHT - 70, sup_y))
 
-            # Playmaker: when GK has ball, come SHORT as safe option
+            # If holder is GK, come back for outlet
             holder_is_gk = (hasattr(holder, 'ai') and holder.ai is not None
                             and holder.ai.name == 'Goalkeeper')
             if holder_is_gk:
-                sup_x = holder.x + (60 if attacking_right else -60)  # stay close
-                sup_y = HEIGHT // 2 + (40 if player.y < HEIGHT // 2 else -40)
+                sup_x = holder.x + (150 if attacking_right else -150)
+                sup_y = HEIGHT // 2 + (80 if player.y < HEIGHT // 2 else -80)
 
             # If lane blocked, shift to other side
             path_open = not _path_blocked(holder.x, holder.y, player.x, player.y, opponents, 40)
@@ -693,11 +693,10 @@ class GoalkeeperAI(BaseAI):
         box_top = HEIGHT // 2 - 200
         box_bot = HEIGHT // 2 + 200
 
-        # Home: move freely within the full penalty box
-        home_x = own_goal_x + (130 if attacking_right else -130)
+        # Home: goal mouth, tracks ball vertically
+        home_x = own_goal_x + (25 if attacking_right else -25)
         home_x = max(box_left + 5, min(box_right - 5, home_x))
-        # Track ball aggressively — 60% of ball's vertical position
-        angle_y = own_goal_y + (ball_y - own_goal_y) * 0.6
+        angle_y = own_goal_y + (ball_y - own_goal_y) * 0.5
         home_y = max(box_top + 5, min(box_bot - 5, angle_y))
 
         # ——— carrying ——————————————————————————————————————————
@@ -719,7 +718,7 @@ class GoalkeeperAI(BaseAI):
             sprint = True
             dist_to_ball = _dist(player.x, player.y, ball_x, ball_y)
             ball_danger = (
-                abs(ball_x - own_goal_x) < 380 and
+                abs(ball_x - own_goal_x) < 350 and
                 abs(ball_y - own_goal_y) < GOAL_HEIGHT // 2 + 120
             )
 
@@ -937,19 +936,17 @@ class TricksterAI(BaseAI):
 # ================================================================
 
 class DefenderAI(BaseAI):
-    """Active defender — constantly moves with the ball, cuts off angles,
-    mirrors attackers, wins possession, clears danger."""
+    """Active defender — tracks ball directly, stays in own half, clears danger."""
 
     name = "Defender"
 
     def __init__(self):
         self._was_kicking = False
-        self._juke_phase = random.random() * 6.28
 
     def decide(self, player, ball_x, ball_y, ball_vx, ball_vy,
                teammates, opponents, attacking_right):
         up = down = left = right = False
-        sprint = True  # always sprinting
+        sprint = True  # always sprint
         kick = False
         face = None
 
@@ -958,10 +955,7 @@ class DefenderAI(BaseAI):
         dx_goal = 1 if attacking_right else -1
         half_x = WIDTH // 2
 
-        self._juke_phase += 0.2
-        juke = math.sin(self._juke_phase)
-
-        # Track ball holder
+        # Track who has the ball
         holder = None
         for p in teammates + opponents:
             if p.holding_ball:
@@ -985,7 +979,6 @@ class DefenderAI(BaseAI):
                 face = _norm(dx_goal, (wing_y - player.y) / max(1, abs(wing_y - player.y)) * 0.5)
                 player.kick_power = MAX_KICK_POWER
                 kick = False
-            # Move toward own goal
             safe_x = own_goal_x + dx_goal * 100
             if attacking_right:
                 safe_x = min(safe_x, half_x - 30)
@@ -993,7 +986,7 @@ class DefenderAI(BaseAI):
                 safe_x = max(safe_x, half_x + 30)
             up, down, left, right = _move_toward(player.x, player.y, safe_x, own_goal_y)
 
-        # ——— opponent has ball — chase ball directly —————————
+        # ——— opponent has ball — chase directly —————————————
         elif holder in opponents:
             target_x = ball_x
             target_y = ball_y
@@ -1040,7 +1033,6 @@ class DefenderAI(BaseAI):
 
     def reset(self):
         self._was_kicking = False
-        self._juke_phase = random.random() * 6.28
 
 
 # ================================================================

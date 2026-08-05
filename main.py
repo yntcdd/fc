@@ -65,7 +65,7 @@ ball_vy = 0
 FRICTION = 0.98
 
 # Kick
-MAX_KICK_POWER = 25
+MAX_KICK_POWER = 20  # 80% speed
 KICK_CHARGE_RATE = 0.5
 KICK_COOLDOWN_TIME = 20
 
@@ -689,16 +689,18 @@ while running:
             if abs(ball_vy) < 0.05:
                 ball_vy = 0
 
-        # Goal detection
-        if ball_x < GOAL_WIDTH:
-            if abs(ball_y - HEIGHT // 2) < GOAL_HEIGHT // 2:
+        # Goal detection — only counts if ball enters from the field side
+        in_goal_y = abs(ball_y - HEIGHT // 2) < GOAL_HEIGHT // 2
+
+        if ball_x < GOAL_WIDTH and in_goal_y:
+            if ball_vx < 0:  # ball moving into goal from field
                 goal_scored("right")
 
-        if ball_x > WIDTH - GOAL_WIDTH:
-            if abs(ball_y - HEIGHT // 2) < GOAL_HEIGHT // 2:
+        if ball_x > WIDTH - GOAL_WIDTH and in_goal_y:
+            if ball_vx > 0:  # ball moving into goal from field
                 goal_scored("left")
 
-        # Field collision
+        # Field collision — allow ball through goal area
         if ball_y <= ball_radius:
             ball_y = ball_radius
             ball_vy *= -1
@@ -707,11 +709,12 @@ while running:
             ball_y = HEIGHT - ball_radius
             ball_vy *= -1
 
-        if ball_x <= ball_radius:
+        # Side walls: only bounce if NOT in the goal area
+        if ball_x <= ball_radius and not in_goal_y:
             ball_x = ball_radius
             ball_vx *= -1
 
-        if ball_x >= WIDTH - ball_radius:
+        if ball_x >= WIDTH - ball_radius and not in_goal_y:
             ball_x = WIDTH - ball_radius
             ball_vx *= -1
 
