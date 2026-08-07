@@ -434,31 +434,101 @@ def reset_positions(kicking_team=None):
     player2.x = WIDTH - GOAL_WIDTH - 20
     player2.y = HEIGHT // 2
 
-    # Blue outfield – spread across the centre-third
-    player3.x = 350
-    player3.y = HEIGHT // 2 - 60
+    if kicking_team is None:
+        # ── Normal play positions (no kickoff) ──────────────────────────
+        # Blue outfield – spread across the centre-third
+        player3.x = 350
+        player3.y = HEIGHT // 2 - 60
 
-    player5.x = 350
-    player5.y = HEIGHT // 2 + 60
+        player5.x = 350
+        player5.y = HEIGHT // 2 + 60
 
-    player7.x = 240
-    player7.y = HEIGHT // 2 + 90
+        player7.x = 240
+        player7.y = HEIGHT // 2 + 90
 
-    player9.x = 200
-    player9.y = HEIGHT // 2 - 50
+        player9.x = 200
+        player9.y = HEIGHT // 2 - 50
 
-    # Red outfield – mirror
-    player4.x = WIDTH - 350
-    player4.y = HEIGHT // 2 + 60
+        # Red outfield – mirror
+        player4.x = WIDTH - 350
+        player4.y = HEIGHT // 2 + 60
 
-    player6.x = WIDTH - 350
-    player6.y = HEIGHT // 2 - 60
+        player6.x = WIDTH - 350
+        player6.y = HEIGHT // 2 - 60
 
-    player8.x = WIDTH - 240
-    player8.y = HEIGHT // 2 - 90
+        player8.x = WIDTH - 240
+        player8.y = HEIGHT // 2 - 90
 
-    player10.x = WIDTH - 200
-    player10.y = HEIGHT // 2 + 50
+        player10.x = WIDTH - 200
+        player10.y = HEIGHT // 2 + 50
+
+    else:
+        # ── Kickoff formation ──────────────────────────────────────────
+        # Both teams line up in their own half.
+        #  • 2 defenders on a line parallel to halfway (same x, spaced vertically)
+        #  • 2 attackers in front, also on a line parallel to the defenders
+        #  • The kickoff taker stands alone at the centre spot.
+
+        DEF_X  = 280            # how deep the defensive line sits
+        ATT_X  = 550            # attacking-midfield line (in front of defenders)
+        DEF_Y  = 170            # vertical spacing for defenders
+        ATT_Y  = 100            # vertical spacing for attackers
+
+        if kicking_team == "blue":
+            # ── Blue kicks off ───────────────────────────────────────
+            # Blue defensive line
+            player7.x = DEF_X
+            player7.y = HEIGHT // 2 - DEF_Y
+            player9.x = DEF_X
+            player9.y = HEIGHT // 2 + DEF_Y
+
+            # Blue attacker (the non-kicking playmaker)
+            player5.x = ATT_X
+            player5.y = HEIGHT // 2 + ATT_Y
+
+            # Blue kickoff taker at the centre spot
+            player3.x = WIDTH // 2
+            player3.y = HEIGHT // 2
+
+            # Red defensive line (mirrored)
+            player8.x  = WIDTH - DEF_X
+            player8.y  = HEIGHT // 2 - DEF_Y
+            player10.x = WIDTH - DEF_X
+            player10.y = HEIGHT // 2 + DEF_Y
+
+            # Red attackers
+            player4.x = WIDTH - ATT_X
+            player4.y = HEIGHT // 2 - ATT_Y
+            player6.x = WIDTH - ATT_X
+            player6.y = HEIGHT // 2 + ATT_Y
+
+        else:  # kicking_team == "red"
+            # ── Red kicks off ─────────────────────────────────────────
+            # Blue defensive line
+            player7.x = DEF_X
+            player7.y = HEIGHT // 2 - DEF_Y
+            player9.x = DEF_X
+            player9.y = HEIGHT // 2 + DEF_Y
+
+            # Blue attackers
+            player3.x = ATT_X
+            player3.y = HEIGHT // 2 - ATT_Y
+            player5.x = ATT_X
+            player5.y = HEIGHT // 2 + ATT_Y
+
+            # Red defensive line (mirrored)
+            player8.x  = WIDTH - DEF_X
+            player8.y  = HEIGHT // 2 - DEF_Y
+            player10.x = WIDTH - DEF_X
+            player10.y = HEIGHT // 2 + DEF_Y
+
+            # Red attacker (the non-kicking playmaker)
+            player6.x = WIDTH - ATT_X
+            player6.y = HEIGHT // 2 - ATT_Y
+
+            # Red kickoff taker at the centre spot
+            player4.x = WIDTH // 2
+            player4.y = HEIGHT // 2
 
     ball_x = WIDTH // 2
     ball_y = HEIGHT // 2
@@ -479,17 +549,11 @@ def reset_positions(kicking_team=None):
 
     # ── Kickoff: the kicking team's playmaker stands at the centre spot ────
     if kicking_team == "blue":
-        # Blue Playmaker1 at the centre circle, passes back to a teammate
-        player3.x = WIDTH // 2
-        player3.y = HEIGHT // 2
         player3.holding_ball = True
         player3.steal_shield = 40
         kickoff_timer = 25
         kickoff_passer = player3
     elif kicking_team == "red":
-        # Red Playmaker1 at the centre circle, passes back to a teammate
-        player4.x = WIDTH // 2
-        player4.y = HEIGHT // 2
         player4.holding_ball = True
         player4.steal_shield = 40
         kickoff_timer = 25
@@ -675,29 +739,39 @@ while running:
         # Game timer
         game_timer -= 1
 
-        # ── Kickoff script: centre-circle pass back to a teammate ────────
+        # ── Kickoff script: forced pass to the nearest teammate ────────
         if kickoff_timer > 0 and kickoff_passer is not None:
             kickoff_timer -= 1
             p = kickoff_passer
 
-            # Target the other central midfielder on the same team
-            if p in blue_team:
-                target = player5   # Bellingham — the other blue PM
-            else:
-                target = player6   # Mbappe — the other red PM
+            # Find the nearest teammate (excluding goalkeepers and self)
+            teammates = blue_team if p in blue_team else red_team
+            best = None
+            best_dist = float("inf")
+            for t in teammates:
+                if t is p:
+                    continue
+                # Skip goalkeepers — pass to an outfield player
+                if t is player1 or t is player2:
+                    continue
+                d = math.hypot(t.x - p.x, t.y - p.y)
+                if d < best_dist:
+                    best_dist = d
+                    best = t
 
-            target_x = target.x
-            target_y = target.y
-            dx = target_x - p.x
-            dy = target_y - p.y
-            dist = math.hypot(dx, dy)
-            if dist > 0.01:
-                p.face_x = dx / dist
-                p.face_y = dy / dist
+            if best is not None:
+                target_x = best.x
+                target_y = best.y
+                dx = target_x - p.x
+                dy = target_y - p.y
+                dist = math.hypot(dx, dy)
+                if dist > 0.01:
+                    p.face_x = dx / dist
+                    p.face_y = dy / dist
             if kickoff_timer > 15:
                 p.kick_power = 7  # soft pass
             elif kickoff_timer == 0 and p.holding_ball:
-                # Execute the pass
+                # Execute the forced pass — player has no control
                 p.holding_ball = False
                 ball_vx = p.face_x * p.kick_power
                 ball_vy = p.face_y * p.kick_power
@@ -800,6 +874,19 @@ while running:
         # Ball carrying
         for p in all_players:
             p.carry_ball()
+
+        # ── Prevent own-goal: non-GK ball-carrier cannot enter own net ────
+        for p in all_players:
+            if p.holding_ball and p is not player1 and p is not player2:
+                in_own_goal_y = abs(p.y - HEIGHT // 2) < GOAL_HEIGHT // 2 + p.radius
+                if p in blue_team:
+                    # Blue defends left — can't enter own goal on the left
+                    if p.x < GOAL_WIDTH + p.radius and in_own_goal_y:
+                        p.x = GOAL_WIDTH + p.radius
+                else:
+                    # Red defends right — can't enter own goal on the right
+                    if p.x > WIDTH - GOAL_WIDTH - p.radius and in_own_goal_y:
+                        p.x = WIDTH - GOAL_WIDTH - p.radius
 
         # Steal — pops the ball loose instead of transferring possession.
         # This prevents ping-pong A→B→A→B stealing.
