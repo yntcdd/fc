@@ -35,17 +35,19 @@ ai_font = pygame.font.SysFont(None, 24)
 #  (Press 1-8 during play to toggle AI on/off per player,
 #   press 0 to cycle the AI type of every AI-controlled player.)
 
-# ── Blue team (attacking right) ──────────────────────────────────────────────
+# ── Blue team (attacking right, HOME) ─────────────────────────────────────────
 PLAYER1_AI = create_ai("custom_gk")                    # Blue GK         – WASD
 PLAYER3_AI = create_ai("custom_pm")                    # Blue Playmaker1 – IJKL
 PLAYER5_AI = create_ai("custom_pm")                    # Blue Playmaker2 – TFGH
-PLAYER7_AI = create_ai("custom_def")                   # Blue Defender   – ZXCV
+PLAYER7_AI = create_ai("custom_def")                   # Blue Defender1  – ZXCV
+PLAYER9_AI = create_ai("custom_def")                   # Blue Defender2  – F1-F6
 
 # ── Red team (attacking left) ─────────────────────────────────────────────────
-PLAYER2_AI = create_ai("goalkeeper")                    # Red GK          – Arrows
-PLAYER4_AI = create_ai("playmaker")                    # Red Playmaker1  – Numpad
-PLAYER6_AI = create_ai("playmaker")                    # Red Playmaker2  – Numpad2
-PLAYER8_AI = create_ai("defender")                   # Red Defender    – ,./
+PLAYER2_AI = create_ai("custom_gk")                    # Red GK          – Arrows
+PLAYER4_AI = create_ai("custom_pm")                    # Red Playmaker1  – Numpad
+PLAYER6_AI = create_ai("custom_pm")                    # Red Playmaker2  – Numpad2
+PLAYER8_AI = create_ai("custom_def")                   # Red Defender1   – ,./
+PLAYER10_AI = create_ai("custom_def")                  # Red Defender2   – F7-F12
 
 # ── Swap any line to mix old/new AIs, e.g.: ──────────────────────────────────
 #   PLAYER3_AI = create_ai("striker")     # old aggressive striker
@@ -360,9 +362,39 @@ player8 = Player(
     "Cubarsi"
 )
 
-blue_team = [player1, player3, player5, player7]
-red_team = [player2, player4, player6, player8]
-all_players = [player1, player2, player3, player4, player5, player6, player7, player8]
+player9 = Player(
+    200,
+    HEIGHT // 2 + 90,
+    BLUE,
+    {
+        "up": pygame.K_F1,
+        "down": pygame.K_F2,
+        "left": pygame.K_F3,
+        "right": pygame.K_F4,
+        "sprint": pygame.K_F5
+    },
+    pygame.K_F6,
+    "Gabriel"
+)
+
+player10 = Player(
+    WIDTH - 200,
+    HEIGHT // 2 - 90,
+    RED,
+    {
+        "up": pygame.K_F7,
+        "down": pygame.K_F8,
+        "left": pygame.K_F9,
+        "right": pygame.K_F10,
+        "sprint": pygame.K_F11
+    },
+    pygame.K_F12,
+    "Araujo"
+)
+
+blue_team = [player1, player3, player5, player7, player9]
+red_team = [player2, player4, player6, player8, player10]
+all_players = [player1, player2, player3, player4, player5, player6, player7, player8, player9, player10]
 
 # ——— Assign AIs to players ———
 player1.ai = PLAYER1_AI
@@ -373,6 +405,8 @@ player5.ai = PLAYER5_AI
 player6.ai = PLAYER6_AI
 player7.ai = PLAYER7_AI
 player8.ai = PLAYER8_AI
+player9.ai = PLAYER9_AI
+player10.ai = PLAYER10_AI
 
 
 def ai_decision_to_keys(decision, player):
@@ -387,10 +421,11 @@ def ai_decision_to_keys(decision, player):
     return keys
 
 
-def reset_positions():
+def reset_positions(kickoff_blue=True):
     global ball_x, ball_y
     global ball_vx, ball_vy
     global last_kicker, interception_timer
+    global kickoff_timer, kickoff_passer
 
     player1.x = GOAL_WIDTH + 20
     player1.y = HEIGHT // 2
@@ -398,23 +433,31 @@ def reset_positions():
     player2.x = WIDTH - GOAL_WIDTH - 20
     player2.y = HEIGHT // 2
 
-    player3.x = 280
+    # Blue outfield – spread across the centre-third
+    player3.x = 350
     player3.y = HEIGHT // 2 - 60
 
-    player4.x = WIDTH - 280
+    player5.x = 350
+    player5.y = HEIGHT // 2 + 60
+
+    player7.x = 240
+    player7.y = HEIGHT // 2 + 90
+
+    player9.x = 200
+    player9.y = HEIGHT // 2 - 50
+
+    # Red outfield – mirror
+    player4.x = WIDTH - 350
     player4.y = HEIGHT // 2 + 60
 
-    player5.x = 280
-    player5.y = HEIGHT // 2
+    player6.x = WIDTH - 350
+    player6.y = HEIGHT // 2 - 60
 
-    player6.x = WIDTH - 280
-    player6.y = HEIGHT // 2
+    player8.x = WIDTH - 240
+    player8.y = HEIGHT // 2 - 90
 
-    player7.x = 280
-    player7.y = HEIGHT // 2 + 60
-
-    player8.x = WIDTH - 280
-    player8.y = HEIGHT // 2 - 60
+    player10.x = WIDTH - 200
+    player10.y = HEIGHT // 2 + 50
 
     ball_x = WIDTH // 2
     ball_y = HEIGHT // 2
@@ -432,6 +475,17 @@ def reset_positions():
         p.steal_shield = 0
         p.stunned = 0
         p.slow_timer = 0
+
+    # ── Kickoff: home team (blue) always starts with the ball ─────────────
+    if kickoff_blue:
+        # Blue Playmaker1 gets the ball, will pass back on first tick
+        player3.holding_ball = True
+        player3.steal_shield = 40
+        kickoff_timer = 25
+        kickoff_passer = player3
+    else:
+        kickoff_timer = 0
+        kickoff_passer = None
 
 
 def draw_field():
@@ -495,9 +549,13 @@ game_state = "playing"
 goal_timer = 0
 countdown_timer = 0
 
+# Kickoff script — blue (home) starts with a pass-back
+kickoff_timer = 0       # frames remaining in scripted kickoff
+kickoff_passer = None   # the blue PM executing the pass-back
+
 # ── Replay system ─────────────────────────────────────────────────
 REPLAY_MAX_FRAMES = 60          # record last 1 second at 60 FPS
-REPLAY_SPEED_DIV = 4            # 25% speed → each recorded frame shown 4 times
+REPLAY_SPEED_DIV = 5            # 25% speed → each recorded frame shown 4 times
 replay_buffer = []              # list of dicts, newest at the end
 replay_index = 0                # which recorded frame we're showing
 replay_subframe = 0             # 0..REPLAY_SPEED_DIV-1, counts how long we've shown current frame
@@ -542,7 +600,7 @@ def goal_scored(team):
     replay_goal_team = team
     game_state = "replay"
 
-    reset_positions()
+    reset_positions(kickoff_blue=True)
 
     # Reset AI state
     for p in all_players:
@@ -578,7 +636,11 @@ while running:
                 player7.ai = cycle_ai(player7.ai)
             elif event.key == pygame.K_8:
                 player8.ai = cycle_ai(player8.ai)
+            elif event.key == pygame.K_9:
+                player9.ai = cycle_ai(player9.ai)
             elif event.key == pygame.K_0:
+                player10.ai = cycle_ai(player10.ai)
+            elif event.key == pygame.K_MINUS:
                 # Cycle AI type for every AI-controlled player
                 for p in all_players:
                     if p.ai is not None:
@@ -591,8 +653,42 @@ while running:
         # Game timer
         game_timer -= 1
 
+        # ── Kickoff script: blue PM passes back to a defender ────────
+        if kickoff_timer > 0 and kickoff_passer is not None:
+            kickoff_timer -= 1
+            p = kickoff_passer
+            # Find the deepest blue defender to pass back to
+            back_def = player7 if player7.x < player9.x else player9
+            target_x = back_def.x
+            target_y = back_def.y
+            dx = target_x - p.x
+            dy = target_y - p.y
+            dist = math.hypot(dx, dy)
+            if dist > 0.01:
+                p.face_x = dx / dist
+                p.face_y = dy / dist
+            if kickoff_timer > 15:
+                p.kick_power = 7  # soft pass
+            elif kickoff_timer == 0 and p.holding_ball:
+                # Execute the pass
+                p.holding_ball = False
+                ball_vx = p.face_x * p.kick_power
+                ball_vy = p.face_y * p.kick_power
+                p.kick_power = 0
+                p.kick_cooldown = KICK_COOLDOWN_TIME
+                last_kicker = p
+                interception_timer = 90
+                kickoff_passer = None
+            # Let the kickoff passer move slightly toward own goal
+            p.move({"up": False, "down": False, "left": False, "right": False, "sprint": False})
+            p.x += (target_x - p.x) * 0.03
+            p.y += (target_y - p.y) * 0.03
+
         # Update players
         for p in all_players:
+            # Skip AI for the kickoff passer during scripted sequence
+            if p is kickoff_passer and kickoff_timer > 0:
+                continue
             if p.ai is not None:
                 # ——— AI-controlled ————————————————
                 teammates = blue_team if p in blue_team else red_team
@@ -791,6 +887,8 @@ while running:
 
         if countdown_timer <= 0:
             game_state = "playing"
+            # Blue (home) always kicks off
+            reset_positions(kickoff_blue=True)
 
     # Draw field
     draw_field()
