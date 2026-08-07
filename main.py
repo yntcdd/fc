@@ -38,16 +38,16 @@ ai_font = pygame.font.SysFont(None, 24)
 # ── Blue team (attacking right, HOME) ─────────────────────────────────────────
 PLAYER1_AI = create_ai("custom_gk")                    # Blue GK         – WASD
 PLAYER3_AI = create_ai("custom_pm")                    # Blue Playmaker1 – IJKL
-PLAYER5_AI = create_ai("custom_pm")                    # Blue Playmaker2 – TFGH
-PLAYER7_AI = create_ai("custom_def")                   # Blue Defender1  – ZXCV
+PLAYER5_AI = create_ai("playmaker")                    # Blue Playmaker2 – TFGH
+PLAYER7_AI = create_ai("defender")                   # Blue Defender1  – ZXCV
 PLAYER9_AI = create_ai("custom_def")                   # Blue Defender2  – F1-F6
 
 # ── Red team (attacking left) ─────────────────────────────────────────────────
-PLAYER2_AI = create_ai("custom_gk")                    # Red GK          – Arrows
-PLAYER4_AI = create_ai("custom_pm")                    # Red Playmaker1  – Numpad
-PLAYER6_AI = create_ai("custom_pm")                    # Red Playmaker2  – Numpad2
+PLAYER2_AI = create_ai("goalkeeper")                    # Red GK          – Arrows
+PLAYER4_AI = create_ai("playmaker")                    # Red Playmaker1  – Numpad
+PLAYER6_AI = create_ai("playmaker")                    # Red Playmaker2  – Numpad2
 PLAYER8_AI = create_ai("custom_def")                   # Red Defender1   – ,./
-PLAYER10_AI = create_ai("custom_def")                  # Red Defender2   – F7-F12
+PLAYER10_AI = create_ai("defender")                  # Red Defender2   – F7-F12
 
 # ── Swap any line to mix old/new AIs, e.g.: ──────────────────────────────────
 #   PLAYER3_AI = create_ai("striker")     # old aggressive striker
@@ -59,7 +59,7 @@ PLAYER10_AI = create_ai("custom_def")                  # Red Defender2   – F7-
 GOAL_WIDTH = 40
 GOAL_HEIGHT = 250
 
-# Ball
+# Balls
 STEAL_COOLDOWN_TIME = 120  # 120 frames = 2 seconds at 60 FPS
 steal_cooldown = 0
 
@@ -421,7 +421,8 @@ def ai_decision_to_keys(decision, player):
     return keys
 
 
-def reset_positions(kickoff_blue=True):
+def reset_positions(kicking_team=None):
+    """Reset all players and the ball.  `kicking_team` is "blue", "red", or None."""
     global ball_x, ball_y
     global ball_vx, ball_vy
     global last_kicker, interception_timer
@@ -476,13 +477,23 @@ def reset_positions(kickoff_blue=True):
         p.stunned = 0
         p.slow_timer = 0
 
-    # ── Kickoff: home team (blue) always starts with the ball ─────────────
-    if kickoff_blue:
-        # Blue Playmaker1 gets the ball, will pass back on first tick
+    # ── Kickoff: the kicking team's playmaker stands at the centre spot ────
+    if kicking_team == "blue":
+        # Blue Playmaker1 at the centre circle, passes back to a teammate
+        player3.x = WIDTH // 2
+        player3.y = HEIGHT // 2
         player3.holding_ball = True
         player3.steal_shield = 40
         kickoff_timer = 25
         kickoff_passer = player3
+    elif kicking_team == "red":
+        # Red Playmaker1 at the centre circle, passes back to a teammate
+        player4.x = WIDTH // 2
+        player4.y = HEIGHT // 2
+        player4.holding_ball = True
+        player4.steal_shield = 40
+        kickoff_timer = 25
+        kickoff_passer = player4
     else:
         kickoff_timer = 0
         kickoff_passer = None
@@ -544,14 +555,20 @@ def draw_field():
 
 running = True
 
-game_state = "playing"
+# Start with countdown so the first kickoff happens after "3…2…1…GO!"
+game_state = "countdown"
+countdown_timer = 180   # 3 seconds at 60 FPS
 
 goal_timer = 0
-countdown_timer = 0
+next_kicking_team = "blue"  # who kicks off after the countdown ends
 
-# Kickoff script — blue (home) starts with a pass-back
+# Kickoff script — a playmaker passes back to a defender
 kickoff_timer = 0       # frames remaining in scripted kickoff
-kickoff_passer = None   # the blue PM executing the pass-back
+kickoff_passer = None   # the PM executing the scripted pass-back
+
+# Teleport everyone to their starting spots NOW so the countdown shows the
+# kickoff taker already standing at the centre circle with the ball.
+reset_positions(kicking_team="blue")
 
 # ── Replay system ─────────────────────────────────────────────────
 REPLAY_MAX_FRAMES = 60          # record last 1 second at 60 FPS
@@ -588,11 +605,14 @@ def goal_scored(team):
     global score_left, score_right
     global game_state, goal_timer
     global replay_index, replay_subframe, replay_goal_team
+    global next_kicking_team
 
     if team == "left":
         score_left += 1
+        next_kicking_team = "red"   # blue scored → red kicks off
     else:
         score_right += 1
+        next_kicking_team = "blue"  # red scored → blue kicks off
 
     # Capture replay buffer before resetting
     replay_index = 0
@@ -600,7 +620,9 @@ def goal_scored(team):
     replay_goal_team = team
     game_state = "replay"
 
-    reset_positions(kickoff_blue=True)
+    # Reset positions but DON'T set up kickoff yet — that happens after the
+    # countdown.  The ball just sits at centre during the replay + goal pause.
+    reset_positions(kicking_team=None)
 
     # Reset AI state
     for p in all_players:
@@ -653,14 +675,19 @@ while running:
         # Game timer
         game_timer -= 1
 
-        # ── Kickoff script: blue PM passes back to a defender ────────
+        # ── Kickoff script: centre-circle pass back to a teammate ────────
         if kickoff_timer > 0 and kickoff_passer is not None:
             kickoff_timer -= 1
             p = kickoff_passer
-            # Find the deepest blue defender to pass back to
-            back_def = player7 if player7.x < player9.x else player9
-            target_x = back_def.x
-            target_y = back_def.y
+
+            # Target the other central midfielder on the same team
+            if p in blue_team:
+                target = player5   # Bellingham — the other blue PM
+            else:
+                target = player6   # Mbappe — the other red PM
+
+            target_x = target.x
+            target_y = target.y
             dx = target_x - p.x
             dy = target_y - p.y
             dist = math.hypot(dx, dy)
@@ -679,10 +706,8 @@ while running:
                 last_kicker = p
                 interception_timer = 90
                 kickoff_passer = None
-            # Let the kickoff passer move slightly toward own goal
-            p.move({"up": False, "down": False, "left": False, "right": False, "sprint": False})
-            p.x += (target_x - p.x) * 0.03
-            p.y += (target_y - p.y) * 0.03
+            # Passer is frozen at the centre spot until the pass is released
+            p.move({k: False for k in p.keys.values()})
 
         # Update players
         for p in all_players:
@@ -880,6 +905,9 @@ while running:
         if goal_timer <= 0:
             game_state = "countdown"
             countdown_timer = 300
+            # Teleport the kickoff taker to the centre circle right now,
+            # so they're visible there during the "3…2…1…" countdown.
+            reset_positions(kicking_team=next_kicking_team)
 
     elif game_state == "countdown":
 
@@ -887,8 +915,7 @@ while running:
 
         if countdown_timer <= 0:
             game_state = "playing"
-            # Blue (home) always kicks off
-            reset_positions(kickoff_blue=True)
+            # Kickoff script takes over — passer is already at the centre spot
 
     # Draw field
     draw_field()
