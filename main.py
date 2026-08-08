@@ -677,7 +677,7 @@ reset_positions(kicking_team="blue")
 
 # replay system, records the last second at 60 fps
 REPLAY_MAX_FRAMES = 60
-REPLAY_SPEED_DIV = 6
+REPLAY_SPEED_DIV = 7
 replay_buffer = []
 replay_index = 0
 replay_subframe = 0
