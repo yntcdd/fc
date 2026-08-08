@@ -12,7 +12,54 @@ pygame.display.set_caption("Soccer Game")
 
 clock = pygame.time.Clock()
 
-# Colors
+# set up sound effects
+pygame.mixer.init()
+
+# ambient crowd murmur, loops the whole game at 30%
+_crowd = pygame.mixer.Sound("sounds/crowd.mp3")
+_crowd.set_volume(0.30)
+_crowd_ch = pygame.mixer.Channel(0)
+_crowd_ch.play(_crowd, loops=-1, fade_ms=600)
+
+# goal event sting, plays on top of ambient
+_goal_snd = pygame.mixer.Sound("sounds/goal.mp3")
+_goal_snd.set_volume(0.0)
+
+# kick sound, throttled to once every 0.25s
+_kick_snd = pygame.mixer.Sound("sounds/kick.mp3")
+_kick_snd.set_volume(0.60)
+_kick_cooldown = 0
+
+def _kick():
+    """Play kick.mp3, but at most once every 0.25 s (15 frames)."""
+    global _kick_cooldown
+    if _kick_cooldown <= 0:
+        _kick_snd.play()
+        _kick_cooldown = 15
+
+_goal_vol   = 0.0     # current event volume
+_goal_decay = 0.0     # per-frame drop toward silence
+
+def _event_sound(peak, seconds):
+    """Play goal.mp3 at *peak* volume, then linearly decay to silence
+    over *seconds*.  Stops any previous event playback first."""
+    global _goal_vol, _goal_decay
+    _goal_snd.stop()
+    _goal_vol = peak
+    _goal_decay = peak / max(1, seconds * 60)
+    _goal_snd.set_volume(_goal_vol)
+    _goal_snd.play()
+
+def _event_tick():
+    """Call once per frame — decay event volume and kick cooldown."""
+    global _goal_vol, _kick_cooldown
+    if _goal_vol > 0.0:
+        _goal_vol = max(0.0, _goal_vol - _goal_decay)
+        _goal_snd.set_volume(_goal_vol)
+    if _kick_cooldown > 0:
+        _kick_cooldown -= 1
+
+# colors
 FIELD_GREEN = (40, 160, 60)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -25,47 +72,42 @@ score_font = pygame.font.SysFont(None, 70)
 count_font = pygame.font.SysFont(None, 100)
 ai_font = pygame.font.SysFont(None, 24)
 
-# ————————————————————————————————————————————————
-#  AI Configuration
-# ————————————————————————————————————————————————
-#  Set each player to None (keyboard) or an AI instance.
-#  Use create_ai("name") to get an instance by name.
-#  OLD AIs : "goalkeeper"  "playmaker"  "striker"  "defender"  "trickster"
-#  NEW AIs : "custom_gk"   "custom_pm"  "custom_def"  "custom_str"
-#  (Press 1-8 during play to toggle AI on/off per player,
-#   press 0 to cycle the AI type of every AI-controlled player.)
+# AI configuration
+# set each player to None for keyboard, or use create_ai("name") for AI
+# old AIs: "goalkeeper" "playmaker" "striker" "defender" "trickster"
+# new AIs: "custom_gk" "custom_pm" "custom_def" "custom_str"
+# press 1-8 to toggle AI per player, 0 to cycle AI type for all AI players
 
-# ── Blue team (attacking right, HOME) ─────────────────────────────────────────
-PLAYER1_AI = create_ai("custom_gk")                    # Blue GK         – WASD
-PLAYER3_AI = create_ai("custom_pm")                    # Blue Playmaker1 – IJKL
-PLAYER5_AI = create_ai("playmaker")                    # Blue Playmaker2 – TFGH
-PLAYER7_AI = create_ai("defender")                   # Blue Defender1  – ZXCV
-PLAYER9_AI = create_ai("custom_def")                   # Blue Defender2  – F1-F6
+# blue team (attacks right)
+PLAYER1_AI = create_ai("custom_gk")                    # blue GK – WASD
+PLAYER3_AI = create_ai("custom_pm")                    # blue PM1 – IJKL
+PLAYER5_AI = create_ai("playmaker")                    # blue PM2 – TFGH
+PLAYER7_AI = create_ai("defender")                     # blue DEF1 – ZXCV
+PLAYER9_AI = create_ai("custom_def")                   # blue DEF2 – F1-F6
 
-# ── Red team (attacking left) ─────────────────────────────────────────────────
-PLAYER2_AI = create_ai("goalkeeper")                    # Red GK          – Arrows
-PLAYER4_AI = create_ai("playmaker")                    # Red Playmaker1  – Numpad
-PLAYER6_AI = create_ai("playmaker")                    # Red Playmaker2  – Numpad2
-PLAYER8_AI = create_ai("custom_def")                   # Red Defender1   – ,./
-PLAYER10_AI = create_ai("defender")                  # Red Defender2   – F7-F12
+# red team (attacks left)
+PLAYER2_AI = create_ai("goalkeeper")                   # red GK – arrows
+PLAYER4_AI = create_ai("custom_pm")                    # red PM1 – numpad
+PLAYER6_AI = create_ai("playmaker")                    # red PM2 – numpad2
+PLAYER8_AI = create_ai("custom_def")                   # red DEF1 – ,./
+PLAYER10_AI = create_ai("defender")                    # red DEF2 – F7-F12
 
-# ── Swap any line to mix old/new AIs, e.g.: ──────────────────────────────────
-#   PLAYER3_AI = create_ai("striker")     # old aggressive striker
-#   PLAYER7_AI = create_ai("trickster")   # old trickster in place of defender
-#   PLAYER1_AI = create_ai("goalkeeper")  # original keeper AI
-# ————————————————————————————————————————————————
+# swap any line to mix AIs, e.g.:
+#   PLAYER3_AI = create_ai("striker")
+#   PLAYER7_AI = create_ai("trickster")
+#   PLAYER1_AI = create_ai("goalkeeper")
 
-# Field
+# field dimensions
 GOAL_WIDTH = 40
 GOAL_HEIGHT = 250
 
-# Balls
-STEAL_COOLDOWN_TIME = 120  # 120 frames = 2 seconds at 60 FPS
+# ball and steal settings
+STEAL_COOLDOWN_TIME = 120
 steal_cooldown = 0
 
-# Pass interception tracking
-last_kicker = None           # player who last kicked the ball
-interception_timer = 0       # frames remaining where an interception can happen
+# pass interception tracking
+last_kicker = None
+interception_timer = 0
 
 ball_radius = 12
 ball_x = WIDTH // 2
@@ -76,16 +118,16 @@ ball_vy = 0
 
 FRICTION = 0.98
 
-# Kick
-MAX_KICK_POWER = 20  # 80% speed
+# kick settings
+MAX_KICK_POWER = 20
 KICK_CHARGE_RATE = 0.5
 KICK_COOLDOWN_TIME = 20
 
-# Score
+# score variables
 score_left = 0
 score_right = 0
 
-# Game timer (120 seconds = 2 minutes at 60 FPS)
+# game timer, 2 minutes at 60 fps
 GAME_DURATION = 120 * 60
 game_timer = GAME_DURATION
 
@@ -111,9 +153,9 @@ class Player:
         self.kick_key = kick_key
 
         self.holding_ball = False
-        self.steal_shield = 0     # frames of immunity after acquiring the ball
-        self.stunned = 0          # frames of immobility after being tackled
-        self.slow_timer = 0       # frames of half-speed after intercepting a kick
+        self.steal_shield = 0
+        self.stunned = 0
+        self.slow_timer = 0
 
         self.kick_power = 0
         self.kick_cooldown = 0
@@ -169,7 +211,6 @@ class Player:
             self.kick_cooldown -= 1
 
         if pressed[self.kick_key] and self.holding_ball and self.kick_cooldown == 0:
-            # Only set power if not already set by AI
             if self.kick_power < 0.01:
                 self.kick_power = MAX_KICK_POWER
 
@@ -179,9 +220,9 @@ class Player:
         if not pressed[self.kick_key] and self.kick_power > 0 and self.holding_ball:
             self.holding_ball = False
 
-            # Shot inaccuracy — higher power = more deviation
+            # shot inaccuracy, higher power = more deviation
             power_ratio = self.kick_power / MAX_KICK_POWER
-            angle_error = random.uniform(-0.12, 0.12) * power_ratio  # ±~7° at max power
+            angle_error = random.uniform(-0.12, 0.12) * power_ratio
             cos_err = math.cos(angle_error)
             sin_err = math.sin(angle_error)
             accurate_vx = self.face_x * self.kick_power
@@ -189,12 +230,14 @@ class Player:
             ball_vx = accurate_vx * cos_err - accurate_vy * sin_err
             ball_vy = accurate_vx * sin_err + accurate_vy * cos_err
 
+            _kick()
+
             self.kick_power = 0
             self.kick_cooldown = KICK_COOLDOWN_TIME
 
-            # Track for interception detection
+            # track for interception detection
             last_kicker = self
-            interception_timer = 90   # 1.5 sec window
+            interception_timer = 90
 
     def pickup_ball(self):
         global ball_vx, ball_vy, last_kicker, interception_timer
@@ -207,22 +250,22 @@ class Player:
 
             if distance < self.radius + ball_radius:
                 self.holding_ball = True
-                self.steal_shield = 25   # ~0.4 sec immunity
+                self.steal_shield = 25
 
                 ball_vx = 0
                 ball_vy = 0
 
-                # Interception: opponent picks up the ball right after a kick
+                # interception: opponent claims the ball right after a kick
                 if (last_kicker is not None and
                     interception_timer > 0 and
                     last_kicker is not self and
                     ((self in blue_team) != (last_kicker in blue_team))):
-                    # Goalkeeper never gets stunned
+                    # goalkeeper never gets stunned on interceptions
                     is_gk = (hasattr(last_kicker, 'ai') and last_kicker.ai is not None
                              and last_kicker.ai.name in ('Goalkeeper', 'Custom GK'))
                     if not is_gk:
-                        last_kicker.stunned = 60   # 1 sec stun
-                    self.slow_timer = 120      # 2 sec half-speed for interceptor
+                        last_kicker.stunned = 60
+                    self.slow_timer = 120
                 last_kicker = None
                 interception_timer = 0
 
@@ -396,7 +439,7 @@ blue_team = [player1, player3, player5, player7, player9]
 red_team = [player2, player4, player6, player8, player10]
 all_players = [player1, player2, player3, player4, player5, player6, player7, player8, player9, player10]
 
-# ——— Assign AIs to players ———
+# assign AIs to players
 player1.ai = PLAYER1_AI
 player2.ai = PLAYER2_AI
 player3.ai = PLAYER3_AI
@@ -435,8 +478,8 @@ def reset_positions(kicking_team=None):
     player2.y = HEIGHT // 2
 
     if kicking_team is None:
-        # ── Normal play positions (no kickoff) ──────────────────────────
-        # Blue outfield – spread across the centre-third
+        # normal play positions, no kickoff
+        # blue outfield
         player3.x = 350
         player3.y = HEIGHT // 2 - 60
 
@@ -449,7 +492,7 @@ def reset_positions(kicking_team=None):
         player9.x = 200
         player9.y = HEIGHT // 2 - 50
 
-        # Red outfield – mirror
+        # red outfield
         player4.x = WIDTH - 350
         player4.y = HEIGHT // 2 + 60
 
@@ -463,11 +506,9 @@ def reset_positions(kicking_team=None):
         player10.y = HEIGHT // 2 + 50
 
     else:
-        # ── Kickoff formation ──────────────────────────────────────────
-        # Both teams line up in their own half.
-        #  • 2 defenders on a line parallel to halfway (same x, spaced vertically)
-        #  • 2 attackers in front, also on a line parallel to the defenders
-        #  • The kickoff taker stands alone at the centre spot.
+        # kickoff formation
+        # both teams line up in their own half with defenders and attackers
+        # in lines parallel to halfway, kickoff taker at the centre spot
 
         DEF_X  = 280            # how deep the defensive line sits
         ATT_X  = 550            # attacking-midfield line (in front of defenders)
@@ -475,7 +516,7 @@ def reset_positions(kicking_team=None):
         ATT_Y  = 100            # vertical spacing for attackers
 
         if kicking_team == "blue":
-            # ── Blue kicks off ───────────────────────────────────────
+            # blue kicks off
             # Blue defensive line
             player7.x = DEF_X
             player7.y = HEIGHT // 2 - DEF_Y
@@ -503,7 +544,7 @@ def reset_positions(kicking_team=None):
             player6.y = HEIGHT // 2 + ATT_Y
 
         else:  # kicking_team == "red"
-            # ── Red kicks off ─────────────────────────────────────────
+            # red kicks off
             # Blue defensive line
             player7.x = DEF_X
             player7.y = HEIGHT // 2 - DEF_Y
@@ -547,7 +588,7 @@ def reset_positions(kicking_team=None):
         p.stunned = 0
         p.slow_timer = 0
 
-    # ── Kickoff: the kicking team's playmaker stands at the centre spot ────
+    # give the ball to the kicking team's playmaker at the centre spot
     if kicking_team == "blue":
         player3.holding_ball = True
         player3.steal_shield = 40
@@ -626,21 +667,21 @@ countdown_timer = 180   # 3 seconds at 60 FPS
 goal_timer = 0
 next_kicking_team = "blue"  # who kicks off after the countdown ends
 
-# Kickoff script — a playmaker passes back to a defender
-kickoff_timer = 0       # frames remaining in scripted kickoff
-kickoff_passer = None   # the PM executing the scripted pass-back
+# kickoff script state
+kickoff_timer = 0
+kickoff_passer = None
 
 # Teleport everyone to their starting spots NOW so the countdown shows the
 # kickoff taker already standing at the centre circle with the ball.
 reset_positions(kicking_team="blue")
 
-# ── Replay system ─────────────────────────────────────────────────
-REPLAY_MAX_FRAMES = 60          # record last 1 second at 60 FPS
-REPLAY_SPEED_DIV = 5            # 25% speed → each recorded frame shown 4 times
-replay_buffer = []              # list of dicts, newest at the end
-replay_index = 0                # which recorded frame we're showing
-replay_subframe = 0             # 0..REPLAY_SPEED_DIV-1, counts how long we've shown current frame
-replay_goal_team = None         # "left" or "right" — who scored
+# replay system, records the last second at 60 fps
+REPLAY_MAX_FRAMES = 60
+REPLAY_SPEED_DIV = 5
+replay_buffer = []
+replay_index = 0
+replay_subframe = 0
+replay_goal_team = None
 
 
 def record_frame():
@@ -678,14 +719,15 @@ def goal_scored(team):
         score_right += 1
         next_kicking_team = "blue"  # red scored → blue kicks off
 
+    _event_sound(1.0, 9)
+
     # Capture replay buffer before resetting
     replay_index = 0
     replay_subframe = 0
     replay_goal_team = team
     game_state = "replay"
 
-    # Reset positions but DON'T set up kickoff yet — that happens after the
-    # countdown.  The ball just sits at centre during the replay + goal pause.
+    # reset positions without kickoff, ball sits at centre during replay
     reset_positions(kicking_team=None)
 
     # Reset AI state
@@ -702,10 +744,7 @@ while running:
             running = False
 
         if event.type == pygame.KEYDOWN:
-            # ——— AI toggle keys ————————————————————————
-            #  1-6 : toggle AI on/off for that player
-            #  0   : cycle AI type (for players that have AI on)
-            # ————————————————————————————————————————————
+            # AI toggle keys: 1-8 toggle AI per player, 0 cycles all AI types
             if event.key == pygame.K_1:
                 player1.ai = cycle_ai(player1.ai)
             elif event.key == pygame.K_2:
@@ -734,12 +773,14 @@ while running:
 
     keys = pygame.key.get_pressed()
 
+    _event_tick()
+
     if game_state == "playing" and game_timer > 0:
 
         # Game timer
         game_timer -= 1
 
-        # ── Kickoff script: forced pass to the nearest teammate ────────
+        # kickoff script: forced pass to the nearest teammate
         if kickoff_timer > 0 and kickoff_passer is not None:
             kickoff_timer -= 1
             p = kickoff_passer
@@ -775,6 +816,7 @@ while running:
                 p.holding_ball = False
                 ball_vx = p.face_x * p.kick_power
                 ball_vy = p.face_y * p.kick_power
+                _kick()
                 p.kick_power = 0
                 p.kick_cooldown = KICK_COOLDOWN_TIME
                 last_kicker = p
@@ -789,7 +831,7 @@ while running:
             if p is kickoff_passer and kickoff_timer > 0:
                 continue
             if p.ai is not None:
-                # ——— AI-controlled ————————————————
+                # AI controlled
                 teammates = blue_team if p in blue_team else red_team
                 opponents = red_team if p in blue_team else blue_team
                 attacking_right = (p in blue_team)
@@ -811,7 +853,7 @@ while running:
                 p.charge_kick(ai_keys)
                 p.release_kick(ai_keys)
             else:
-                # ——— Keyboard-controlled ———————————
+                # keyboard controlled
                 p.move(keys)
                 p.charge_kick(keys)
                 p.release_kick(keys)
@@ -819,7 +861,7 @@ while running:
         if steal_cooldown > 0:
             steal_cooldown -= 1
 
-        # Tick down shields, stuns, slow, and interception window
+        # tick down status timers
         for p in all_players:
             if p.steal_shield > 0:
                 p.steal_shield -= 1
@@ -830,7 +872,7 @@ while running:
         if interception_timer > 0:
             interception_timer -= 1
 
-        # ——— Player collision — push apart overlapping players ———
+        # player collision, push apart overlapping players
         # Stunned players are ghosts (no collision).
         # Teammates get a softer push so they don't fight each other.
         for i in range(len(all_players)):
@@ -858,10 +900,10 @@ while running:
                     a.x += 1
                     b.x -= 1
 
-        # Ball pickup — closest player gets it, not first in list order
+        # ball pickup, closest player gets it
         if not any(p.holding_ball for p in all_players):
             # Sort by distance to ball so the closest player always wins
-            # GKs always eligible; others need to not be stunned
+            # goalkeepers always eligible, outfield must not be stunned
             candidates = [p for p in all_players
                           if p.stunned == 0 or (hasattr(p, 'ai') and p.ai is not None
                                                 and p.ai.name in ('Goalkeeper', 'Custom GK'))]
@@ -869,13 +911,15 @@ while running:
             for p in candidates:
                 p.pickup_ball()
                 if p.holding_ball:
+                    if p is player1 or p is player2:
+                        _event_sound(0.50, 4)
                     break   # ball claimed, stop
 
         # Ball carrying
         for p in all_players:
             p.carry_ball()
 
-        # ── Prevent own-goal: non-GK ball-carrier cannot enter own net ────
+        # prevent own goal: non-GK ball carrier cannot enter own net
         for p in all_players:
             if p.holding_ball and p is not player1 and p is not player2:
                 in_own_goal_y = abs(p.y - HEIGHT // 2) < GOAL_HEIGHT // 2 + p.radius
@@ -888,9 +932,8 @@ while running:
                     if p.x > WIDTH - GOAL_WIDTH - p.radius and in_own_goal_y:
                         p.x = WIDTH - GOAL_WIDTH - p.radius
 
-        # Steal — pops the ball loose instead of transferring possession.
-        # This prevents ping-pong A→B→A→B stealing.
-        # Only works from the FRONT — opponent must be on the ball-side of the holder.
+        # steal: pops the ball loose instead of transferring possession
+        # only works from the front, opponent must be ball-side of the holder
         if steal_cooldown == 0:
             for holder in all_players:
                 if holder.holding_ball and holder.steal_shield == 0:
@@ -907,7 +950,7 @@ while running:
 
                         distance = math.hypot(ball_x - opponent.x, ball_y - opponent.y)
                         if distance < opponent.radius + ball_radius + 4:
-                            # Pop the ball loose — away from both players
+                            # pop the ball loose away from both players
                             mid_x = (holder.x + opponent.x) / 2
                             mid_y = (holder.y + opponent.y) / 2
                             pop_dir_x = ball_x - mid_x
@@ -941,7 +984,7 @@ while running:
             if abs(ball_vy) < 0.05:
                 ball_vy = 0
 
-        # Goal detection — only counts if ball enters from the field side
+        # goal detection, only counts if ball enters from the field side
         in_goal_y = abs(ball_y - HEIGHT // 2) < GOAL_HEIGHT // 2
 
         if ball_x < GOAL_WIDTH and in_goal_y:
@@ -952,7 +995,7 @@ while running:
             if ball_vx > 0:  # ball moving into goal from field
                 goal_scored("left")
 
-        # Field collision — allow ball through goal area
+        # field collision, allow ball through goal area
         if ball_y <= ball_radius:
             ball_y = ball_radius
             ball_vy *= -1
@@ -970,12 +1013,12 @@ while running:
             ball_x = WIDTH - ball_radius
             ball_vx *= -1
 
-        # Record frame for goal replay (only if still playing — goal_scored may have fired)
+        # record frame for goal replay
         if game_state == "playing":
             record_frame()
 
     elif game_state == "replay":
-        # Slow-motion replay: advance one recorded frame every REPLAY_SPEED_DIV ticks
+        # slow motion replay
         replay_subframe += 1
         if replay_subframe >= REPLAY_SPEED_DIV:
             replay_subframe = 0
@@ -1007,7 +1050,7 @@ while running:
     # Draw field
     draw_field()
 
-    # ── Draw players & ball (replay or live) ──────────────────────────
+    # draw players and ball, replay or live
     if game_state == "replay" and replay_index < len(replay_buffer):
         frame = replay_buffer[replay_index]
         # Draw recorded player positions
@@ -1043,7 +1086,7 @@ while running:
                 name_label,
                 (p.x - name_label.get_width() // 2, p.y - p.radius - 22),
             )
-            # Stunned indicator — just a mark showing they can't pick up the ball
+            # stunned indicator
             if p.stunned > 0:
                 stun_label = ai_font.render("!", True, (255, 80, 80))
                 screen.blit(stun_label,
