@@ -17,7 +17,7 @@ pygame.mixer.init()
 
 # ambient crowd murmur, loops the whole game at 30%
 _crowd = pygame.mixer.Sound("sounds/crowd.mp3")
-_crowd.set_volume(0.30)
+_crowd.set_volume(0.20)
 _crowd_ch = pygame.mixer.Channel(0)
 _crowd_ch.play(_crowd, loops=-1, fade_ms=600)
 
@@ -677,7 +677,7 @@ reset_positions(kicking_team="blue")
 
 # replay system, records the last second at 60 fps
 REPLAY_MAX_FRAMES = 60
-REPLAY_SPEED_DIV = 5
+REPLAY_SPEED_DIV = 6
 replay_buffer = []
 replay_index = 0
 replay_subframe = 0
@@ -719,7 +719,7 @@ def goal_scored(team):
         score_right += 1
         next_kicking_team = "blue"  # red scored → blue kicks off
 
-    _event_sound(1.0, 9)
+    _event_sound(1.0, 13)
 
     # Capture replay buffer before resetting
     replay_index = 0
@@ -827,8 +827,8 @@ while running:
 
         # Update players
         for p in all_players:
-            # Skip AI for the kickoff passer during scripted sequence
-            if p is kickoff_passer and kickoff_timer > 0:
+            # During kickoff, freeze ALL players until the ball is passed
+            if kickoff_timer > 0:
                 continue
             if p.ai is not None:
                 # AI controlled
@@ -984,14 +984,15 @@ while running:
             if abs(ball_vy) < 0.05:
                 ball_vy = 0
 
-        # goal detection, only counts if ball enters from the field side
+        # goal detection — the WHOLE ball must pass through the edge of the map
+        # at the goal mouth; wall collision is already disabled there
         in_goal_y = abs(ball_y - HEIGHT // 2) < GOAL_HEIGHT // 2
 
-        if ball_x < GOAL_WIDTH and in_goal_y:
+        if ball_x <= -ball_radius and in_goal_y:
             if ball_vx < 0:  # ball moving into goal from field
                 goal_scored("right")
 
-        if ball_x > WIDTH - GOAL_WIDTH and in_goal_y:
+        if ball_x >= WIDTH + ball_radius and in_goal_y:
             if ball_vx > 0:  # ball moving into goal from field
                 goal_scored("left")
 
@@ -1066,10 +1067,26 @@ while running:
                 name_label,
                 (pd["x"] - name_label.get_width() // 2, pd["y"] - 20 - 22),
             )
-            if pd["stunned"] > 0:
-                stun_label = ai_font.render("!", True, (255, 80, 80))
-                screen.blit(stun_label,
-                            (pd["x"] - stun_label.get_width() // 2, pd["y"] - 20 - 38))
+            # stunned indicator removed
+        # Ball trail — small square particles fading back through time
+        trail_length = 18
+        for t in range(1, trail_length + 1):
+            idx = replay_index - t
+            if idx < 0:
+                break
+            prev_frame = replay_buffer[idx]
+            bx, by = prev_frame["ball"]
+            # Particles shrink and fade the further back they are
+            ratio = 1.0 - (t / (trail_length + 1))
+            size = max(1, int(ball_radius * 0.7 * ratio))
+            alpha = int(120 * ratio)
+            if size <= 0:
+                continue
+            trail_surf = pygame.Surface((size, size), pygame.SRCALPHA)
+            trail_surf.fill((220, 120, 20, alpha))
+            trail_surf.set_alpha(alpha)
+            screen.blit(trail_surf, (int(bx - size / 2), int(by - size / 2)))
+
         # Draw recorded ball position
         pygame.draw.circle(
             screen,
@@ -1086,11 +1103,7 @@ while running:
                 name_label,
                 (p.x - name_label.get_width() // 2, p.y - p.radius - 22),
             )
-            # stunned indicator
-            if p.stunned > 0:
-                stun_label = ai_font.render("!", True, (255, 80, 80))
-                screen.blit(stun_label,
-                            (p.x - stun_label.get_width() // 2, p.y - p.radius - 38))
+            # stunned indicator removed
 
         # Draw ball
         pygame.draw.circle(
