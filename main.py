@@ -6,11 +6,41 @@ import custom_ai  # registers "custom_gk", "custom_pm", "custom_def", "custom_st
 
 pygame.init()
 
-WIDTH, HEIGHT = 1920, 1080
+WIDTH, HEIGHT = 1912, 1045
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Soccer Game")
 
 clock = pygame.time.Clock()
+
+# Load player avatar images
+_IMG_SIZE = 44
+
+def _make_circular(img):
+    """Crop an image to a circle using an alpha mask."""
+    size = img.get_width()
+    mask = pygame.Surface((size, size), pygame.SRCALPHA)
+    mask.fill((0, 0, 0, 0))
+    pygame.draw.circle(mask, (255, 255, 255, 255), (size // 2, size // 2), size // 2)
+    result = img.copy()
+    result.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    return result
+
+_claude_img = pygame.image.load("images/claude.png").convert_alpha()
+_claude_img = pygame.transform.smoothscale(_claude_img, (_IMG_SIZE, _IMG_SIZE))
+_claude_img = _make_circular(_claude_img)
+
+_deepseek_img = pygame.image.load("images/deepseek.png").convert_alpha()
+_deepseek_img = pygame.transform.smoothscale(_deepseek_img, (_IMG_SIZE, _IMG_SIZE))
+_deepseek_img = _make_circular(_deepseek_img)
+
+def _player_image(player):
+    """Return the avatar image for a player based on their AI type."""
+    if player.ai is None:
+        return None
+    name = getattr(player.ai, "name", "")
+    if name.startswith("Custom"):
+        return _claude_img
+    return _deepseek_img
 
 # set up sound effects
 pygame.mixer.init()
@@ -81,14 +111,14 @@ ai_font = pygame.font.SysFont(None, 24)
 # blue team (attacks right)
 PLAYER1_AI = create_ai("custom_gk")                    # blue GK – WASD
 PLAYER3_AI = create_ai("custom_pm")                    # blue PM1 – IJKL
-PLAYER5_AI = create_ai("custom_pm")                    # blue PM2 – TFGH
+PLAYER5_AI = create_ai("playmaker")                    # blue PM2 – TFGH
 PLAYER7_AI = create_ai("defender")                     # blue DEF1 – ZXCV
 PLAYER9_AI = create_ai("custom_def")                   # blue DEF2 – F1-F6
 
 # red team (attacks left)
-PLAYER2_AI = create_ai("goalkeeper")                   # red GK – arrows
+PLAYER2_AI = create_ai("custom_gk")                   # red GK – arrows
 PLAYER4_AI = create_ai("playmaker")                    # red PM1 – numpad
-PLAYER6_AI = create_ai("playmaker")                    # red PM2 – numpad2
+PLAYER6_AI = create_ai("custom_pm")                    # red PM2 – numpad2
 PLAYER8_AI = create_ai("custom_def")                   # red DEF1 – ,./
 PLAYER10_AI = create_ai("defender")                    # red DEF2 – F7-F12
 
@@ -276,12 +306,16 @@ class Player:
             ball_y = self.y + self.face_y * (self.radius + ball_radius + 5)
 
     def draw(self):
-        pygame.draw.circle(
-            screen,
-            self.color,
-            (int(self.x), int(self.y)),
-            self.radius
-        )
+        img = _player_image(self)
+        if img is not None:
+            screen.blit(img, (int(self.x - _IMG_SIZE // 2), int(self.y - _IMG_SIZE // 2)))
+        else:
+            pygame.draw.circle(
+                screen,
+                self.color,
+                (int(self.x), int(self.y)),
+                self.radius
+            )
 
 
 player1 = Player(
@@ -296,7 +330,7 @@ player1 = Player(
         "sprint": pygame.K_LSHIFT
     },
     pygame.K_SPACE,
-    "Courtois"
+    "Goalkeeper"
 )
 
 player2 = Player(
@@ -311,7 +345,7 @@ player2 = Player(
         "sprint": pygame.K_RSHIFT
     },
     pygame.K_0,
-    "Michael Z"
+    "Goalkeeper"
 )
 
 player3 = Player(
@@ -326,7 +360,7 @@ player3 = Player(
         "sprint": pygame.K_u
     },
     pygame.K_o,
-    "Messi"
+    "Attacker"
 )
 
 player4 = Player(
@@ -341,7 +375,7 @@ player4 = Player(
         "sprint": pygame.K_KP7
     },
     pygame.K_KP9,
-    "Joshua Hu"
+    "Attacker"
 )
 
 player5 = Player(
@@ -356,7 +390,7 @@ player5 = Player(
         "sprint": pygame.K_r
     },
     pygame.K_y,
-    "Haaland"
+    "Attacker"
 )
 
 player6 = Player(
@@ -371,7 +405,7 @@ player6 = Player(
         "sprint": pygame.K_KP_PLUS
     },
     pygame.K_KP_MINUS,
-    "Darren"
+    "Attacker"
 )
 
 player7 = Player(
@@ -386,7 +420,7 @@ player7 = Player(
         "sprint": pygame.K_b
     },
     pygame.K_n,
-    "Cubarsi"
+    "Defender"
 )
 
 player8 = Player(
@@ -401,7 +435,7 @@ player8 = Player(
         "sprint": pygame.K_QUOTE
     },
     pygame.K_LEFTBRACKET,
-    "Arjun"
+    "Defender"
 )
 
 player9 = Player(
@@ -416,7 +450,7 @@ player9 = Player(
         "sprint": pygame.K_F5
     },
     pygame.K_F6,
-    "Van Dijk"
+    "Defender"
 )
 
 player10 = Player(
@@ -431,7 +465,7 @@ player10 = Player(
         "sprint": pygame.K_F11
     },
     pygame.K_F12,
-    "Kyle Lin"
+    "Defender"
 )
 
 blue_team = [player1, player3, player5, player7, player9]
@@ -661,7 +695,7 @@ running = True
 
 # Start with countdown so the first kickoff happens after "3…2…1…GO!"
 game_state = "countdown"
-countdown_timer = 180   # 3 seconds at 60 FPS
+countdown_timer = 600   # 3 seconds at 60 FPS
 
 goal_timer = 0
 next_kicking_team = "blue"  # who kicks off after the countdown ends
@@ -691,6 +725,10 @@ def record_frame():
         "ball": (ball_x, ball_y),
     }
     for p in all_players:
+        img_type = "circle"
+        if p.ai is not None:
+            name = getattr(p.ai, "name", "")
+            img_type = "claude" if name.startswith("Custom") else "deepseek"
         frame["players"].append({
             "x": p.x, "y": p.y,
             "face_x": p.face_x, "face_y": p.face_y,
@@ -698,6 +736,7 @@ def record_frame():
             "stunned": p.stunned,
             "color": p.color,
             "name": p.display_name,
+            "img_type": img_type,
         })
     replay_buffer.append(frame)
     # Keep only the last N frames
@@ -1055,12 +1094,18 @@ while running:
         frame = replay_buffer[replay_index]
         # Draw recorded player positions
         for pd in frame["players"]:
-            pygame.draw.circle(
-                screen,
-                pd["color"],
-                (int(pd["x"]), int(pd["y"])),
-                20,  # player radius
-            )
+            img_type = pd.get("img_type", "circle")
+            if img_type == "claude":
+                screen.blit(_claude_img, (int(pd["x"] - _IMG_SIZE // 2), int(pd["y"] - _IMG_SIZE // 2)))
+            elif img_type == "deepseek":
+                screen.blit(_deepseek_img, (int(pd["x"] - _IMG_SIZE // 2), int(pd["y"] - _IMG_SIZE // 2)))
+            else:
+                pygame.draw.circle(
+                    screen,
+                    pd["color"],
+                    (int(pd["x"]), int(pd["y"])),
+                    20,  # player radius
+                )
             name_label = ai_font.render(pd["name"], True, WHITE)
             screen.blit(
                 name_label,
