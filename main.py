@@ -133,7 +133,6 @@ game_timer = GAME_DURATION
 
 timer_font = pygame.font.SysFont(None, 60)
 
-
 class Player:
     def __init__(self, x, y, color, keys, kick_key, display_name=""):
         self.x = x
