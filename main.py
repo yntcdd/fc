@@ -111,15 +111,15 @@ ai_font = pygame.font.SysFont(None, 24)
 # blue team (attacks right)
 PLAYER1_AI = create_ai("custom_gk")                    # blue GK – WASD
 PLAYER3_AI = create_ai("custom_pm")                    # blue PM1 – IJKL
-PLAYER5_AI = create_ai("playmaker")                    # blue PM2 – TFGH
-PLAYER7_AI = create_ai("defender")                     # blue DEF1 – ZXCV
+PLAYER5_AI = create_ai("custom_pm")                    # blue PM2 – TFGH
+PLAYER7_AI = create_ai("custom_def")                     # blue DEF1 – ZXCV
 PLAYER9_AI = create_ai("custom_def")                   # blue DEF2 – F1-F6
 
 # red team (attacks left)
-PLAYER2_AI = create_ai("custom_gk")                   # red GK – arrows
+PLAYER2_AI = create_ai("goalkeeper")                   # red GK – arrows
 PLAYER4_AI = create_ai("playmaker")                    # red PM1 – numpad
-PLAYER6_AI = create_ai("custom_pm")                    # red PM2 – numpad2
-PLAYER8_AI = create_ai("custom_def")                   # red DEF1 – ,./
+PLAYER6_AI = create_ai("playmaker")                    # red PM2 – numpad2
+PLAYER8_AI = create_ai("defender")                   # red DEF1 – ,./
 PLAYER10_AI = create_ai("defender")                    # red DEF2 – F7-F12
 
 # swap any line to mix AIs, e.g.:
