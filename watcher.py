@@ -22,7 +22,7 @@ class RestartHandler(FileSystemEventHandler):
             self.restart()
 
 if __name__ == "__main__":
-    script_to_run = "main.py"  # <-- replace with your main script
+    script_to_run = "game.py"  # <-- replace with your main script
     event_handler = RestartHandler(script_to_run)
     observer = Observer()
     observer.schedule(event_handler, path='.', recursive=True)

@@ -7,7 +7,7 @@ WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("My Pygame Project")
 
-clock = pygame.time.clock()
+clock = pygame.time.Clock()
 
 running = True
 while running:

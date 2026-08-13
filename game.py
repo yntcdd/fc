@@ -1,7 +1,7 @@
 import pygame
 import math
 import random
-from ai import create_ai, cycle_ai, AI_REGISTRY
+from ai import create_ai
 import custom_ai  # registers "custom_gk", "custom_pm", "custom_def", "custom_str"
 
 pygame.init()
@@ -103,24 +103,25 @@ count_font = pygame.font.SysFont(None, 100)
 ai_font = pygame.font.SysFont(None, 24)
 
 # AI configuration
-# set each player to None for keyboard, or use create_ai("name") for AI
+# every player starts AI-controlled.  press 1 to add a blue human player
+# (WASD, LShift sprint, Space shoot) or 2 to add a red human player
+# (arrow keys, RShift sprint, Ctrl shoot).
 # old AIs: "goalkeeper" "playmaker" "striker" "defender" "trickster"
 # new AIs: "custom_gk" "custom_pm" "custom_def" "custom_str"
-# press 1-8 to toggle AI per player, 0 to cycle AI type for all AI players
 
 # blue team (attacks right)
-PLAYER1_AI = create_ai("custom_gk")                    # blue GK – WASD
-PLAYER3_AI = create_ai("custom_pm")                    # blue PM1 – IJKL
-PLAYER5_AI = create_ai("custom_pm")                    # blue PM2 – TFGH
-PLAYER7_AI = create_ai("custom_def")                     # blue DEF1 – ZXCV
-PLAYER9_AI = create_ai("custom_def")                   # blue DEF2 – F1-F6
+PLAYER1_AI = create_ai("custom_gk")    # blue GK
+PLAYER3_AI = create_ai("custom_pm")    # blue PM1
+PLAYER5_AI = create_ai("custom_str")   # blue PM2
+PLAYER7_AI = create_ai("custom_def")   # blue DEF1
+PLAYER9_AI = create_ai("custom_def")   # blue DEF2
 
 # red team (attacks left)
-PLAYER2_AI = create_ai("goalkeeper")                   # red GK – arrows
-PLAYER4_AI = create_ai("playmaker")                    # red PM1 – numpad
-PLAYER6_AI = create_ai("playmaker")                    # red PM2 – numpad2
-PLAYER8_AI = create_ai("defender")                   # red DEF1 – ,./
-PLAYER10_AI = create_ai("defender")                    # red DEF2 – F7-F12
+PLAYER2_AI = create_ai("goalkeeper")   # red GK
+PLAYER4_AI = create_ai("playmaker")    # red PM1
+PLAYER6_AI = create_ai("playmaker")    # red PM2
+PLAYER8_AI = create_ai("defender")     # red DEF1
+PLAYER10_AI = create_ai("defender")    # red DEF2
 
 # swap any line to mix AIs, e.g.:
 #   PLAYER3_AI = create_ai("striker")
@@ -150,7 +151,7 @@ FRICTION = 0.98
 
 # kick settings
 MAX_KICK_POWER = 20
-KICK_CHARGE_RATE = 0.5
+KICK_CHARGE_RATE = 2.0
 KICK_COOLDOWN_TIME = 20
 
 # score variables
@@ -240,8 +241,7 @@ class Player:
             self.kick_cooldown -= 1
 
         if pressed[self.kick_key] and self.holding_ball and self.kick_cooldown == 0:
-            if self.kick_power < 0.01:
-                self.kick_power = MAX_KICK_POWER
+            self.kick_power = min(MAX_KICK_POWER, self.kick_power + KICK_CHARGE_RATE)
 
     def release_kick(self, pressed):
         global ball_vx, ball_vy, last_kicker, interception_timer
@@ -318,155 +318,26 @@ class Player:
             )
 
 
-player1 = Player(
-    GOAL_WIDTH + 20,
-    HEIGHT // 2,
-    BLUE,
-    {
-        "up": pygame.K_w,
-        "down": pygame.K_s,
-        "left": pygame.K_a,
-        "right": pygame.K_d,
-        "sprint": pygame.K_LSHIFT
-    },
-    pygame.K_SPACE,
-    "Goalkeeper"
-)
+# AI players never read the keyboard, so they share a placeholder keys dict.
+# The values are only used as dict keys by move/charge_kick/release_kick and
+# are never compared against a real keypress.
+_AI_KEYS = {"up": "up", "down": "down", "left": "left", "right": "right", "sprint": "sprint"}
+_AI_KICK_KEY = "kick"
 
-player2 = Player(
-    WIDTH - GOAL_WIDTH - 20,
-    HEIGHT // 2,
-    RED,
-    {
-        "up": pygame.K_UP,
-        "down": pygame.K_DOWN,
-        "left": pygame.K_LEFT,
-        "right": pygame.K_RIGHT,
-        "sprint": pygame.K_RSHIFT
-    },
-    pygame.K_0,
-    "Goalkeeper"
-)
+player1 = Player(GOAL_WIDTH + 20, HEIGHT // 2, BLUE, _AI_KEYS, _AI_KICK_KEY, "Goalkeeper")
+player2 = Player(WIDTH - GOAL_WIDTH - 20, HEIGHT // 2, RED, _AI_KEYS, _AI_KICK_KEY, "Goalkeeper")
 
-player3 = Player(
-    280,
-    HEIGHT // 2 - 60,
-    BLUE,
-    {
-        "up": pygame.K_i,
-        "down": pygame.K_k,
-        "left": pygame.K_j,
-        "right": pygame.K_l,
-        "sprint": pygame.K_u
-    },
-    pygame.K_o,
-    "Attacker"
-)
+player3 = Player(280, HEIGHT // 2 - 60, BLUE, _AI_KEYS, _AI_KICK_KEY, "Attacker")
+player4 = Player(WIDTH - 280, HEIGHT // 2 + 60, RED, _AI_KEYS, _AI_KICK_KEY, "Attacker")
 
-player4 = Player(
-    WIDTH - 280,
-    HEIGHT // 2 + 60,
-    RED,
-    {
-        "up": pygame.K_KP8,
-        "down": pygame.K_KP5,
-        "left": pygame.K_KP4,
-        "right": pygame.K_KP6,
-        "sprint": pygame.K_KP7
-    },
-    pygame.K_KP9,
-    "Attacker"
-)
+player5 = Player(280, HEIGHT // 2, BLUE, _AI_KEYS, _AI_KICK_KEY, "Attacker")
+player6 = Player(WIDTH - 280, HEIGHT // 2, RED, _AI_KEYS, _AI_KICK_KEY, "Attacker")
 
-player5 = Player(
-    280,
-    HEIGHT // 2,
-    BLUE,
-    {
-        "up": pygame.K_t,
-        "down": pygame.K_g,
-        "left": pygame.K_f,
-        "right": pygame.K_h,
-        "sprint": pygame.K_r
-    },
-    pygame.K_y,
-    "Attacker"
-)
+player7 = Player(280, HEIGHT // 2 + 60, BLUE, _AI_KEYS, _AI_KICK_KEY, "Defender")
+player8 = Player(WIDTH - 280, HEIGHT // 2 - 60, RED, _AI_KEYS, _AI_KICK_KEY, "Defender")
 
-player6 = Player(
-    WIDTH - 280,
-    HEIGHT // 2,
-    RED,
-    {
-        "up": pygame.K_KP1,
-        "down": pygame.K_KP2,
-        "left": pygame.K_KP3,
-        "right": pygame.K_KP_ENTER,
-        "sprint": pygame.K_KP_PLUS
-    },
-    pygame.K_KP_MINUS,
-    "Attacker"
-)
-
-player7 = Player(
-    280,
-    HEIGHT // 2 + 60,
-    BLUE,
-    {
-        "up": pygame.K_z,
-        "down": pygame.K_x,
-        "left": pygame.K_c,
-        "right": pygame.K_v,
-        "sprint": pygame.K_b
-    },
-    pygame.K_n,
-    "Defender"
-)
-
-player8 = Player(
-    WIDTH - 280,
-    HEIGHT // 2 - 60,
-    RED,
-    {
-        "up": pygame.K_COMMA,
-        "down": pygame.K_PERIOD,
-        "left": pygame.K_SEMICOLON,
-        "right": pygame.K_SLASH,
-        "sprint": pygame.K_QUOTE
-    },
-    pygame.K_LEFTBRACKET,
-    "Defender"
-)
-
-player9 = Player(
-    200,
-    HEIGHT // 2 + 90,
-    BLUE,
-    {
-        "up": pygame.K_F1,
-        "down": pygame.K_F2,
-        "left": pygame.K_F3,
-        "right": pygame.K_F4,
-        "sprint": pygame.K_F5
-    },
-    pygame.K_F6,
-    "Defender"
-)
-
-player10 = Player(
-    WIDTH - 200,
-    HEIGHT // 2 - 90,
-    RED,
-    {
-        "up": pygame.K_F7,
-        "down": pygame.K_F8,
-        "left": pygame.K_F9,
-        "right": pygame.K_F10,
-        "sprint": pygame.K_F11
-    },
-    pygame.K_F12,
-    "Defender"
-)
+player9 = Player(200, HEIGHT // 2 + 90, BLUE, _AI_KEYS, _AI_KICK_KEY, "Defender")
+player10 = Player(WIDTH - 200, HEIGHT // 2 - 90, RED, _AI_KEYS, _AI_KICK_KEY, "Defender")
 
 blue_team = [player1, player3, player5, player7, player9]
 red_team = [player2, player4, player6, player8, player10]
@@ -487,7 +358,7 @@ player10.ai = PLAYER10_AI
 
 def ai_decision_to_keys(decision, player):
     """Convert an AI decision dict into a pressed-keys dict keyed by the
-    player's actual pygame keycodes so the existing Player methods work."""
+    player's own keys so the shared Player methods work."""
     keys = {}
     for action in ("up", "down", "left", "right", "sprint"):
         keys[player.keys[action]] = decision.get(action, False)
@@ -495,6 +366,44 @@ def ai_decision_to_keys(decision, player):
     kick_wanted = decision.get("kick", False)
     keys[player.kick_key] = (kick_wanted is True)  # held
     return keys
+
+
+def add_human_player(team):
+    """Spawn a keyboard-controlled player onto the given team.
+
+    team == "blue" -> WASD, LShift sprint, Space shoot
+    team == "red"  -> arrow keys, RShift sprint, Ctrl shoot
+    """
+    if team == "blue":
+        color = BLUE
+        x = WIDTH // 2 - 150
+        keys = {
+            "up": pygame.K_w,
+            "down": pygame.K_s,
+            "left": pygame.K_a,
+            "right": pygame.K_d,
+            "sprint": pygame.K_LSHIFT,
+        }
+        kick_key = pygame.K_SPACE
+        name = "Blue Player"
+    else:
+        color = RED
+        x = WIDTH // 2 + 150
+        keys = {
+            "up": pygame.K_UP,
+            "down": pygame.K_DOWN,
+            "left": pygame.K_LEFT,
+            "right": pygame.K_RIGHT,
+            "sprint": pygame.K_RSHIFT,
+        }
+        kick_key = pygame.K_LCTRL
+        name = "Red Player"
+
+    p = Player(x, HEIGHT // 2, color, keys, kick_key, name)
+    p.ai = None  # no AI -> keyboard controlled
+    (blue_team if team == "blue" else red_team).append(p)
+    all_players.append(p)
+    return p
 
 
 def reset_positions(kicking_team=None):
@@ -782,32 +691,11 @@ while running:
             running = False
 
         if event.type == pygame.KEYDOWN:
-            # AI toggle keys: 1-8 toggle AI per player, 0 cycles all AI types
+            # 1 = add a blue human player, 2 = add a red human player
             if event.key == pygame.K_1:
-                player1.ai = cycle_ai(player1.ai)
+                add_human_player("blue")
             elif event.key == pygame.K_2:
-                player2.ai = cycle_ai(player2.ai)
-            elif event.key == pygame.K_3:
-                player3.ai = cycle_ai(player3.ai)
-            elif event.key == pygame.K_4:
-                player4.ai = cycle_ai(player4.ai)
-            elif event.key == pygame.K_5:
-                player5.ai = cycle_ai(player5.ai)
-            elif event.key == pygame.K_6:
-                player6.ai = cycle_ai(player6.ai)
-            elif event.key == pygame.K_7:
-                player7.ai = cycle_ai(player7.ai)
-            elif event.key == pygame.K_8:
-                player8.ai = cycle_ai(player8.ai)
-            elif event.key == pygame.K_9:
-                player9.ai = cycle_ai(player9.ai)
-            elif event.key == pygame.K_0:
-                player10.ai = cycle_ai(player10.ai)
-            elif event.key == pygame.K_MINUS:
-                # Cycle AI type for every AI-controlled player
-                for p in all_players:
-                    if p.ai is not None:
-                        p.ai = cycle_ai(p.ai)
+                add_human_player("red")
 
     keys = pygame.key.get_pressed()
 
