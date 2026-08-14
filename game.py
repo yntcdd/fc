@@ -3,6 +3,7 @@ import math
 import random
 from ai import create_ai
 import custom_ai  # registers "custom_gk", "custom_pm", "custom_def", "custom_str"
+import gemini_ai  # registers "gemini_gk", "gemini_pm", "gemini_def", "gemini_str"
 
 pygame.init()
 
@@ -33,11 +34,20 @@ _deepseek_img = pygame.image.load("images/deepseek.png").convert_alpha()
 _deepseek_img = pygame.transform.smoothscale(_deepseek_img, (_IMG_SIZE, _IMG_SIZE))
 _deepseek_img = _make_circular(_deepseek_img)
 
+try:
+    _gemini_img = pygame.image.load("images/gemini.png").convert_alpha()
+    _gemini_img = pygame.transform.smoothscale(_gemini_img, (_IMG_SIZE, _IMG_SIZE))
+    _gemini_img = _make_circular(_gemini_img)
+except Exception:
+    _gemini_img = _deepseek_img
+
 def _player_image(player):
     """Return the avatar image for a player based on their AI type."""
     if player.ai is None:
         return None
     name = getattr(player.ai, "name", "")
+    if name.startswith("Gemini"):
+        return _gemini_img
     if name.startswith("Custom"):
         return _claude_img
     return _deepseek_img
@@ -106,22 +116,23 @@ ai_font = pygame.font.SysFont(None, 24)
 # every player starts AI-controlled.  press 1 to add a blue human player
 # (WASD, LShift sprint, Space shoot) or 2 to add a red human player
 # (arrow keys, RShift sprint, Ctrl shoot).
-# old AIs: "goalkeeper" "playmaker" "striker" "defender" "trickster"
-# new AIs: "custom_gk" "custom_pm" "custom_def" "custom_str"
+# original AIs: "goalkeeper" "playmaker" "striker" "defender" "trickster"
+# custom AIs:   "custom_gk" "custom_pm" "custom_def" "custom_str"
+# gemini AIs:   "gemini_gk" "gemini_pm" "gemini_def" "gemini_str"
 
-# blue team (attacks right)
-PLAYER1_AI = create_ai("custom_gk")    # blue GK
-PLAYER3_AI = create_ai("custom_pm")    # blue PM1
-PLAYER5_AI = create_ai("custom_str")   # blue PM2
-PLAYER7_AI = create_ai("custom_def")   # blue DEF1
-PLAYER9_AI = create_ai("custom_def")   # blue DEF2
+# blue team (attacks right) — Gemini AI Team
+PLAYER1_AI = create_ai("gemini_gk")    # blue GK
+PLAYER3_AI = create_ai("gemini_pm")    # blue PM
+PLAYER5_AI = create_ai("gemini_str")   # blue STR
+PLAYER7_AI = create_ai("gemini_def")   # blue DEF1
+PLAYER9_AI = create_ai("gemini_def")   # blue DEF2
 
-# red team (attacks left)
-PLAYER2_AI = create_ai("goalkeeper")   # red GK
-PLAYER4_AI = create_ai("playmaker")    # red PM1
-PLAYER6_AI = create_ai("playmaker")    # red PM2
-PLAYER8_AI = create_ai("defender")     # red DEF1
-PLAYER10_AI = create_ai("defender")    # red DEF2
+# red team (attacks left) — Custom / Original AI mix
+PLAYER2_AI = create_ai("custom_gk")   # red GK
+PLAYER4_AI = create_ai("custom_pm")    # red PM
+PLAYER6_AI = create_ai("custom_str")   # red STR
+PLAYER8_AI = create_ai("custom_def")   # red DEF1
+PLAYER10_AI = create_ai("custom_def")    # red DEF2
 
 # swap any line to mix AIs, e.g.:
 #   PLAYER3_AI = create_ai("striker")
@@ -640,7 +651,12 @@ def record_frame():
         img_type = "circle"
         if p.ai is not None:
             name = getattr(p.ai, "name", "")
-            img_type = "claude" if name.startswith("Custom") else "deepseek"
+            if name.startswith("Gemini"):
+                img_type = "gemini"
+            elif name.startswith("Custom"):
+                img_type = "claude"
+            else:
+                img_type = "deepseek"
         frame["players"].append({
             "x": p.x, "y": p.y,
             "face_x": p.face_x, "face_y": p.face_y,
@@ -986,7 +1002,9 @@ while running:
         # Draw recorded player positions
         for pd in frame["players"]:
             img_type = pd.get("img_type", "circle")
-            if img_type == "claude":
+            if img_type == "gemini":
+                screen.blit(_gemini_img, (int(pd["x"] - _IMG_SIZE // 2), int(pd["y"] - _IMG_SIZE // 2)))
+            elif img_type == "claude":
                 screen.blit(_claude_img, (int(pd["x"] - _IMG_SIZE // 2), int(pd["y"] - _IMG_SIZE // 2)))
             elif img_type == "deepseek":
                 screen.blit(_deepseek_img, (int(pd["x"] - _IMG_SIZE // 2), int(pd["y"] - _IMG_SIZE // 2)))
