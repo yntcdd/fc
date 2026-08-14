@@ -128,11 +128,11 @@ PLAYER7_AI = create_ai("gemini_def")   # blue DEF1
 PLAYER9_AI = create_ai("gemini_def")   # blue DEF2
 
 # red team (attacks left) — Custom / Original AI mix
-PLAYER2_AI = create_ai("custom_gk")   # red GK
-PLAYER4_AI = create_ai("custom_pm")    # red PM
-PLAYER6_AI = create_ai("custom_str")   # red STR
-PLAYER8_AI = create_ai("custom_def")   # red DEF1
-PLAYER10_AI = create_ai("custom_def")    # red DEF2
+PLAYER2_AI = create_ai("goalkeeper")   # red GK
+PLAYER4_AI = create_ai("playmaker")    # red PM
+PLAYER6_AI = create_ai("playmaker")   # red STR
+PLAYER8_AI = create_ai("defender")   # red DEF1
+PLAYER10_AI = create_ai("defender")    # red DEF2
 
 # swap any line to mix AIs, e.g.:
 #   PLAYER3_AI = create_ai("striker")
