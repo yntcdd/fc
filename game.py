@@ -376,7 +376,7 @@ def add_human_player(team):
     """
     if team == "blue":
         color = BLUE
-        x = WIDTH // 2 - 150
+        x = WIDTH // 4  # middle of blue's own (left) half
         keys = {
             "up": pygame.K_w,
             "down": pygame.K_s,
@@ -388,7 +388,7 @@ def add_human_player(team):
         name = "Blue Player"
     else:
         color = RED
-        x = WIDTH // 2 + 150
+        x = WIDTH * 3 // 4  # middle of red's own (right) half
         keys = {
             "up": pygame.K_UP,
             "down": pygame.K_DOWN,
@@ -401,6 +401,9 @@ def add_human_player(team):
 
     p = Player(x, HEIGHT // 2, color, keys, kick_key, name)
     p.ai = None  # no AI -> keyboard controlled
+    # humans move faster than the AIs (base 5 / sprint 7)
+    p.base_speed = 7
+    p.sprint_speed = 9
     (blue_team if team == "blue" else red_team).append(p)
     all_players.append(p)
     return p
@@ -604,7 +607,7 @@ running = True
 
 # Start with countdown so the first kickoff happens after "3…2…1…GO!"
 game_state = "countdown"
-countdown_timer = 600   # 3 seconds at 60 FPS
+countdown_timer = 180   # 3 seconds at 60 FPS
 
 goal_timer = 0
 next_kicking_team = "blue"  # who kicks off after the countdown ends

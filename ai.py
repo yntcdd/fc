@@ -201,7 +201,10 @@ def _best_pass(player, teammates, opponents, attacking_right):
         # Goalkeeper penalty — avoid passing to own GK unless desperate
         is_gk = (hasattr(t, 'ai') and t.ai is not None and t.ai.name == 'Goalkeeper')
         gk_penalty = -600 if is_gk else 0
-        score = (500 - goal_d) * 0.5 + opp_d * 1.5 - me_d * 0.3 + ahead_bonus + striker_bonus + gk_penalty
+        # Human bonus — prefer passing to a human-controlled teammate
+        is_human = (t.ai is None)
+        human_bonus = 300 if is_human else 0
+        score = (500 - goal_d) * 0.5 + opp_d * 1.5 - me_d * 0.3 + ahead_bonus + striker_bonus + gk_penalty + human_bonus
         if blocked:
             score -= 400
         if score > best_score:
@@ -391,7 +394,7 @@ class StrikerAI(BaseAI):
                 chase_y = max(50, min(HEIGHT - 50, chase_y))
                 up, down, left, right = _move_toward(player.x, player.y, chase_x, chase_y)
                 wall = _wall_push(player.x, player.y, 40)
-                up, down, left, right = _blend((up, down, left, right), wall, 0.8)
+                up, down, left, right = _blend((up, down, left, right), wall, 0.5)
                 face = _norm(ball_x - player.x, ball_y - player.y)
 
             # Teammate has ball — get open ahead of them
@@ -607,7 +610,7 @@ class PlaymakerAI(BaseAI):
             chase_y = max(50, min(HEIGHT - 50, chase_y))
             up, down, left, right = _move_toward(player.x, player.y, chase_x, chase_y)
             wall = _wall_push(player.x, player.y, 40)
-            up, down, left, right = _blend((up, down, left, right), wall, 0.8)
+            up, down, left, right = _blend((up, down, left, right), wall, 0.5)
             face = _norm(ball_x - player.x, ball_y - player.y)
             self._charge = 0; kick = False
 
