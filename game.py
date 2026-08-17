@@ -127,7 +127,6 @@ PLAYER5_AI = create_ai("gemini_str")   # blue STR
 PLAYER7_AI = create_ai("gemini_def")   # blue DEF1
 PLAYER9_AI = create_ai("gemini_def")   # blue DEF2
 
-
 # red team (attacks left) — Custom / Original AI mix
 PLAYER2_AI = create_ai("goalkeeper")   # red GK
 PLAYER4_AI = create_ai("playmaker")    # red PM
