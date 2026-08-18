@@ -4,6 +4,7 @@ import random
 from ai import create_ai
 import custom_ai  # registers "custom_gk", "custom_pm", "custom_def", "custom_str"
 import gemini_ai  # registers "gemini_gk", "gemini_pm", "gemini_def", "gemini_str"
+import z_ai  # registers "z_gk", "z_def", "z_pm", "z_str"
 
 pygame.init()
 
@@ -128,11 +129,11 @@ PLAYER7_AI = create_ai("gemini_def")   # blue DEF1
 PLAYER9_AI = create_ai("gemini_def")   # blue DEF2
 
 # red team (attacks left) — Custom / Original AI mix
-PLAYER2_AI = create_ai("goalkeeper")   # red GK
-PLAYER4_AI = create_ai("playmaker")    # red PM
-PLAYER6_AI = create_ai("playmaker")   # red STR
-PLAYER8_AI = create_ai("defender")   # red DEF1
-PLAYER10_AI = create_ai("defender")    # red DEF2
+PLAYER2_AI = create_ai("z_gk")   # red GK
+PLAYER4_AI = create_ai("z_pm")    # red PM
+PLAYER6_AI = create_ai("z_str")   # red STR
+PLAYER8_AI = create_ai("z_def")   # red DEF1
+PLAYER10_AI = create_ai("z_def")    # red DEF2
 
 # swap any line to mix AIs, e.g.:
 #   PLAYER3_AI = create_ai("striker")
@@ -302,7 +303,7 @@ class Player:
                     ((self in blue_team) != (last_kicker in blue_team))):
                     # goalkeeper never gets stunned on interceptions
                     is_gk = (hasattr(last_kicker, 'ai') and last_kicker.ai is not None
-                             and last_kicker.ai.name in ('Goalkeeper', 'Custom GK'))
+                             and last_kicker.ai.name in ('Goalkeeper', 'Custom GK', 'Z GK'))
                     if not is_gk:
                         last_kicker.stunned = 60
                     self.slow_timer = 120
@@ -851,7 +852,7 @@ while running:
             # goalkeepers always eligible, outfield must not be stunned
             candidates = [p for p in all_players
                           if p.stunned == 0 or (hasattr(p, 'ai') and p.ai is not None
-                                                and p.ai.name in ('Goalkeeper', 'Custom GK'))]
+                                                and p.ai.name in ('Goalkeeper', 'Custom GK', 'Z GK'))]
             candidates.sort(key=lambda p: math.hypot(ball_x - p.x, ball_y - p.y))
             for p in candidates:
                 p.pickup_ball()
