@@ -2,7 +2,7 @@
 
 Kimi is deliberately implemented as a separate decision system.  It does not
 reuse the decision helpers, state machines, heuristics, or role implementations
-from ai.py or custom_ai.py.  It only consumes the BaseAI interface and registers
+from deepseek_ai.py or claude_ai.py.  It only consumes the BaseAI interface and registers
 four Kimi role variants so they can be mixed with the existing AIs.
 
 Kimi's philosophy is SPACE + THREAT + OPTIONS:
@@ -18,7 +18,7 @@ Roles: goalkeeper, two defenders, playmaker, striker.
 
 import math
 
-from ai import BaseAI, AI_REGISTRY
+from deepseek_ai import BaseAI, AI_REGISTRY
 
 WIDTH = 1912
 HEIGHT = 1045
@@ -72,7 +72,7 @@ def _move_keys(px, py, tx, ty):
     if abs(dx) < 3 and abs(dy) < 3:
         return False, False, False, False
     # Kimi intentionally quantizes the continuous target into the game's
-    # digital movement API rather than borrowing ai.py's movement helper.
+    # digital movement API rather than borrowing deepseek_ai.py's movement helper.
     if abs(dx) >= abs(dy):
         return dy < -12, dy > 12, dx < 0, dx > 0
     return dy < 0, dy > 0, dx < -12, dx > 12
@@ -562,7 +562,7 @@ class KimiStrikerAI(KimiAI):
 
 
 # Independent registry entries.  Each player receives its own KimiAI object.
-# Concrete classes keep create_ai()/cycle_ai() compatible with ai.py.
+# Concrete classes keep create_ai()/cycle_ai() compatible with deepseek_ai.py.
 AI_REGISTRY["kimi_gk"] = KimiGoalkeeperAI
 AI_REGISTRY["kimi_def"] = KimiDefenderAI
 AI_REGISTRY["kimi_pm"] = KimiPlaymakerAI

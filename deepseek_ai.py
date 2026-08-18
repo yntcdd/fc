@@ -196,10 +196,10 @@ def _best_pass(player, teammates, opponents, attacking_right):
         ahead = (t.x > player.x) if attacking_right else (t.x < player.x)
         ahead_bonus = 200 if ahead else -100  # penalize backward passes
         # Striker bonus — prefer passing to strikers
-        is_striker = (hasattr(t, 'ai') and t.ai is not None and t.ai.name == 'Striker')
+        is_striker = (hasattr(t, 'ai') and t.ai is not None and t.ai.name == 'Deepseek STR')
         striker_bonus = 250 if is_striker else 0
         # Goalkeeper penalty — avoid passing to own GK unless desperate
-        is_gk = (hasattr(t, 'ai') and t.ai is not None and t.ai.name == 'Goalkeeper')
+        is_gk = (hasattr(t, 'ai') and t.ai is not None and t.ai.name == 'Deepseek GK')
         gk_penalty = -600 if is_gk else 0
         # Human bonus — prefer passing to a human-controlled teammate
         is_human = (t.ai is None)
@@ -237,7 +237,7 @@ def _is_one_v_one(player, goal_x, goal_y, opponents):
     for o in opponents:
         # Check if opponent is between player and goal
         if _point_to_segment(o.x, o.y, player.x, player.y, goal_x, goal_y) < 50 + o.radius:
-            is_gk = (hasattr(o, 'ai') and o.ai is not None and o.ai.name == 'Goalkeeper')
+            is_gk = (hasattr(o, 'ai') and o.ai is not None and o.ai.name == 'Deepseek GK')
             if not is_gk:
                 outfield_blockers += 1
     return outfield_blockers == 0
@@ -272,14 +272,14 @@ def _escape_corner(player, attacking_right):
 
 
 # ================================================================
-#  AI: Striker
+#  Deepseek AI: Striker
 # ================================================================
 
-class StrikerAI(BaseAI):
+class DeepseekStrikerAI(BaseAI):
     """Aggressive scorer — jukes, long shots, wall bounces, passes
     under pressure.  Makes forward runs after passing (give-and-go)."""
 
-    name = "Striker"
+    name = "Deepseek STR"
 
     def __init__(self):
         self._was_kicking = False
@@ -411,7 +411,7 @@ class StrikerAI(BaseAI):
 
                 # If holder is our GK, come back more to receive outlet
                 holder_is_gk = (hasattr(holder, 'ai') and holder.ai is not None
-                                and holder.ai.name == 'Goalkeeper')
+                                and holder.ai.name == 'Deepseek GK')
                 if holder_is_gk:
                     target_x = holder.x + dx_goal * 180
                     target_y = HEIGHT // 2 + (80 if player.y < HEIGHT // 2 else -80)
@@ -461,14 +461,14 @@ class StrikerAI(BaseAI):
 
 
 # ================================================================
-#  AI: Playmaker
+#  Deepseek AI: Playmaker
 # ================================================================
 
-class PlaymakerAI(BaseAI):
+class DeepseekPlaymakerAI(BaseAI):
     """Pass-first midfielder — creates space, returns 1-2s, shoots
     from range when open, uses wall bounces."""
 
-    name = "Playmaker"
+    name = "Deepseek PM"
 
     def __init__(self):
         self._was_kicking = False
@@ -580,7 +580,7 @@ class PlaymakerAI(BaseAI):
 
             # If holder is GK, come back for outlet
             holder_is_gk = (hasattr(holder, 'ai') and holder.ai is not None
-                            and holder.ai.name == 'Goalkeeper')
+                            and holder.ai.name == 'Deepseek GK')
             if holder_is_gk:
                 sup_x = holder.x + (150 if attacking_right else -150)
                 sup_y = HEIGHT // 2 + (80 if player.y < HEIGHT // 2 else -80)
@@ -663,14 +663,14 @@ class PlaymakerAI(BaseAI):
 
 
 # ================================================================
-#  AI: Goalkeeper
+#  Deepseek AI: Goalkeeper
 # ================================================================
 
-class GoalkeeperAI(BaseAI):
+class DeepseekGoalkeeperAI(BaseAI):
     """Box-bound keeper — never leaves the penalty area, clears to wings
     or to open teammates."""
 
-    name = "Goalkeeper"
+    name = "Deepseek GK"
 
     def __init__(self):
         self._was_kicking = False
@@ -751,14 +751,14 @@ class GoalkeeperAI(BaseAI):
 
 
 # ================================================================
-#  AI: Trickster
+#  Deepseek AI: Trickster
 # ================================================================
 
-class TricksterAI(BaseAI):
+class DeepseekTricksterAI(BaseAI):
     """Unpredictable — wall bounces, spin moves, long snipes, feints.
     Rotates trick modes every ~1 second."""
 
-    name = "Trickster"
+    name = "Deepseek Trickster"
 
     def __init__(self):
         self._was_kicking = False
@@ -935,13 +935,13 @@ class TricksterAI(BaseAI):
 
 
 # ================================================================
-#  AI: Defender
+#  Deepseek AI: Defender
 # ================================================================
 
-class DefenderAI(BaseAI):
+class DeepseekDefenderAI(BaseAI):
     """Active defender — tracks ball directly, stays in own half, clears danger."""
 
-    name = "Defender"
+    name = "Deepseek DEF"
 
     def __init__(self):
         self._was_kicking = False
@@ -972,7 +972,7 @@ class DefenderAI(BaseAI):
                 player.x, player.y, mate.x, mate.y, opponents, 30)
             mate_ok = (mate is not None and score > 50 and not pass_blocked
                        and not (hasattr(mate, 'ai') and mate.ai is not None
-                                and mate.ai.name == 'Goalkeeper'))
+                                and mate.ai.name == 'Deepseek GK'))
             if mate_ok:
                 face = _norm(mate.x - player.x, mate.y - player.y)
                 player.kick_power = MAX_KICK_POWER
@@ -1043,11 +1043,11 @@ class DefenderAI(BaseAI):
 # ================================================================
 
 AI_REGISTRY = {
-    "striker":    StrikerAI,
-    "playmaker":  PlaymakerAI,
-    "goalkeeper": GoalkeeperAI,
-    "trickster":  TricksterAI,
-    "defender":   DefenderAI,
+    "deepseek_str":    DeepseekStrikerAI,
+    "deepseek_pm":    DeepseekPlaymakerAI,
+    "deepseek_gk":    DeepseekGoalkeeperAI,
+    "deepseek_trickster":  DeepseekTricksterAI,
+    "deepseek_def":   DeepseekDefenderAI,
 }
 
 
@@ -1063,10 +1063,9 @@ def cycle_ai(current_ai):
     names = list(AI_REGISTRY.keys())
     if current_ai is None:
         return create_ai(names[0])
-    cur_name = current_ai.name.lower()
     cur_key = None
     for key, cls in AI_REGISTRY.items():
-        if cls.name.lower() == cur_name:
+        if isinstance(current_ai, cls):
             cur_key = key
             break
     if cur_key is None:

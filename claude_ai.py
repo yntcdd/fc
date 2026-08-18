@@ -1,31 +1,31 @@
-"""custom_ai.py — Coordinated 4-role AI for the 4v4 Pygame soccer game.
+"""claude_ai.py — Coordinated 4-role AI for the 4v4 Pygame soccer game.
 
-Add `import custom_ai` in main.py (after `from ai import ...`) to register:
-    "custom_gk"   -> CustomGoalkeeperAI  (1 per team)
-    "custom_pm"   -> CustomPlaymakerAI   (2 per team, flank-aware)
-    "custom_def"  -> CustomDefenderAI    (1 per team)
-    "custom_str"  -> CustomStrikerAI     (1 per team, high-press scorer)
+Add `import claude_ai` in main.py (after `from deepseek_ai import ...`) to register:
+    "claude_gk"   -> ClaudeGoalkeeperAI  (1 per team)
+    "claude_pm"   -> ClaudePlaymakerAI   (2 per team, flank-aware)
+    "claude_def"  -> ClaudeDefenderAI    (1 per team)
+    "claude_str"  -> ClaudeStrikerAI     (1 per team, high-press scorer)
 
 Players can be freely mixed between old AIs and these new AIs at any time
 via create_ai() / the 1-8 key toggles in main.py.
 
 Role summary
 ------------
-Custom GK  : Box-bound keeper.  Angle-cuts on the goal-to-ball line, rushes
+Claude GK  : Box-bound keeper.  Angle-cuts on the goal-to-ball line, rushes
              loose balls inside the box, distributes smartly (best pass or
              wing clear at max power).
 
-Custom PM  : Midfield engine.  Two playmakers self-assign complementary flanks
+Claude PM  : Midfield engine.  Two playmakers self-assign complementary flanks
              (upper / lower) on their first frame. Positions in open space
              ahead of the ball, executes 1-2 combos, shoots medium-range when
              open, uses wall bounces under pressure.
 
-Custom DEF : Disciplined last defender.  Stays in own third, slides onto the
+Claude DEF : Disciplined last defender.  Stays in own third, slides onto the
              ball-to-goal line to block shot lanes, aggressively presses
              opponents in the defensive half, passes forward immediately on
              possession.
 
-Custom STR : High-pressing scorer.  Chases ball carriers anywhere on the
+Claude STR : High-pressing scorer.  Chases ball carriers anywhere on the
              pitch, makes forward runs behind the defence when a teammate
              carries, and shoots decisively from inside the attacking box.
 """
@@ -33,7 +33,7 @@ Custom STR : High-pressing scorer.  Chases ball carriers anywhere on the
 import math
 import random
 
-from ai import (
+from deepseek_ai import (
     BaseAI, AI_REGISTRY,
     WIDTH, HEIGHT, GOAL_WIDTH, GOAL_HEIGHT, MAX_KICK_POWER, BALL_RADIUS,
     KICK_CHARGE_RATE,
@@ -70,19 +70,19 @@ def _clamp_to_box(x, y, attacking_right, margin=8):
             max(bt + margin, min(bb - margin, y)))
 
 
-def _is_custom_gk(p):
+def _is_claude_gk(p):
     return (hasattr(p, "ai") and p.ai is not None and
-            p.ai.name in ("Goalkeeper", "Custom GK"))
+            p.ai.name in ("Deepseek GK", "Claude GK"))
 
 
 # ================================================================
-#  Custom AI: Goalkeeper
+#  Claude AI: Goalkeeper
 # ================================================================
 
-class CustomGoalkeeperAI(BaseAI):
+class ClaudeGoalkeeperAI(BaseAI):
     """Box-bound keeper with angle-cutting positioning and smart distribution."""
 
-    name = "Custom GK"
+    name = "Claude GK"
 
     def __init__(self):
         self._was_kicking = False
@@ -175,13 +175,13 @@ class CustomGoalkeeperAI(BaseAI):
 
 
 # ================================================================
-#  Custom AI: Playmaker  (flank-aware)
+#  Claude AI: Playmaker  (flank-aware)
 # ================================================================
 
-class CustomPlaymakerAI(BaseAI):
+class ClaudePlaymakerAI(BaseAI):
     """Midfield engine — complementary flank spacing, 1-2 combos, wall bounces."""
 
-    name = "Custom PM"
+    name = "Claude PM"
 
     def __init__(self):
         self._was_kicking = False
@@ -191,13 +191,13 @@ class CustomPlaymakerAI(BaseAI):
 
     # ── Flank assignment ──────────────────────────────────────────────────────
     def _assign_flank(self, player, teammates):
-        """Called once: pick the half not occupied by the other Custom PM."""
+        """Called once: pick the half not occupied by the other Claude PM."""
         if self._flank is not None:
             return
         others = [t for t in teammates
                   if t is not player
                   and hasattr(t, "ai")
-                  and isinstance(t.ai, CustomPlaymakerAI)]
+                  and isinstance(t.ai, ClaudePlaymakerAI)]
         if others:
             self._flank = "upper" if player.y <= others[0].y else "lower"
         else:
@@ -384,13 +384,13 @@ class CustomPlaymakerAI(BaseAI):
 
 
 # ================================================================
-#  Custom AI: Defender
+#  Claude AI: Defender
 # ================================================================
 
-class CustomDefenderAI(BaseAI):
+class ClaudeDefenderAI(BaseAI):
     """Disciplined last defender — blocks shot lanes, instant forward release."""
 
-    name = "Custom DEF"
+    name = "Claude DEF"
 
     def __init__(self):
         self._was_kicking = False
@@ -423,7 +423,7 @@ class CustomDefenderAI(BaseAI):
                           not _path_blocked(player.x, player.y,
                                             mate.x, mate.y, opponents, 30))
             mate_ok = (mate is not None and score > 30 and pass_clear and
-                       not _is_custom_gk(mate))
+                       not _is_claude_gk(mate))
 
             if mate_ok:
                 face = _norm(mate.x - player.x, mate.y - player.y)
@@ -532,13 +532,13 @@ class CustomDefenderAI(BaseAI):
 
 
 # ================================================================
-#  Custom AI: Striker
+#  Claude AI: Striker
 # ================================================================
 
-class CustomStrikerAI(BaseAI):
+class ClaudeStrikerAI(BaseAI):
     """High-pressing scorer — forward runs, decisive box finishing, quick combos."""
 
-    name = "Custom STR"
+    name = "Claude STR"
 
     def __init__(self):
         self._was_kicking = False
@@ -671,7 +671,7 @@ class CustomStrikerAI(BaseAI):
             run_y = max(70, min(HEIGHT - 70, HEIGHT // 2 + juke * 120))
 
             # GK outlet — come deeper to offer a short pass
-            if _is_custom_gk(holder):
+            if _is_claude_gk(holder):
                 run_x = max(80, min(WIDTH - 80, holder.x + dx_goal * 230))
 
             sprint = _dist(player.x, player.y, run_x, run_y) > 80
@@ -708,11 +708,11 @@ class CustomStrikerAI(BaseAI):
 
 
 # ================================================================
-#  Register into the shared AI_REGISTRY from ai.py
-#  This runs automatically when `import custom_ai` is executed.
+#  Register into the shared AI_REGISTRY from deepseek_ai.py
+#  This runs automatically when `import claude_ai` is executed.
 # ================================================================
 
-AI_REGISTRY["custom_gk"]  = CustomGoalkeeperAI
-AI_REGISTRY["custom_pm"]  = CustomPlaymakerAI
-AI_REGISTRY["custom_def"] = CustomDefenderAI
-AI_REGISTRY["custom_str"] = CustomStrikerAI
+AI_REGISTRY["claude_gk"]  = ClaudeGoalkeeperAI
+AI_REGISTRY["claude_pm"]  = ClaudePlaymakerAI
+AI_REGISTRY["claude_def"] = ClaudeDefenderAI
+AI_REGISTRY["claude_str"] = ClaudeStrikerAI

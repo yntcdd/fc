@@ -6,7 +6,7 @@ GeminiAI is an independently designed, multi-agent tactical AI based on a
 High-Intensity Predictive Potential Field & Aggressive Action Utility Matrix.
 
 It does NOT use or adapt the decision trees, state machines, or heuristics
-from ai.py or custom_ai.py. It only consumes the shared BaseAI interface and
+from deepseek_ai.py or claude_ai.py. It only consumes the shared BaseAI interface and
 registers four specialized role variants into AI_REGISTRY:
 
     1. "gemini_gk"   -> GeminiGoalkeeperAI (Cone-bisecting, sweep-and-distribute)
@@ -24,7 +24,7 @@ Core Aggression Enhancements:
 
 import math
 import random
-from ai import BaseAI, AI_REGISTRY
+from deepseek_ai import BaseAI, AI_REGISTRY
 
 # ── Field & Game Constants ───────────────────────────────────────────────────
 WIDTH = 1912

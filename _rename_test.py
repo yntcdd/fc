@@ -383,6 +383,40 @@ player8.ai = PLAYER8_AI
 player9.ai = PLAYER9_AI
 player10.ai = PLAYER10_AI
 
+# --- TEST: renames ---
+from deepseek_ai import create_ai, cycle_ai
+import deepseek_ai, claude_ai, z_ai, gemini_ai
+keys = ["deepseek_gk","deepseek_pm","deepseek_str","deepseek_def","deepseek_trickster",
+        "claude_gk","claude_pm","claude_def","claude_str",
+        "gemini_gk","gemini_pm","gemini_def","gemini_str",
+        "z_gk","z_pm","z_def","z_str"]
+for k in keys:
+    ai = create_ai(k)
+    print(f"create_ai({k!r}) -> name={ai.name!r}")
+print("registry:", sorted(deepseek_ai.AI_REGISTRY.keys()))
+# avatar mapping
+from game import _player_image, _claude_img, _deepseek_img, _z_img, _gemini_img
+checks = [
+    ("deepseek_gk", _deepseek_img), ("deepseek_str", _deepseek_img),
+    ("claude_gk", _claude_img), ("claude_pm", _claude_img),
+    ("z_gk", _z_img), ("gemini_gk", _gemini_img),
+]
+for k, want in checks:
+    p = player3
+    p.ai = create_ai(k)
+    got = _player_image(p)
+    print(f"avatar {k}: {'OK' if got is want else 'WRONG'}")
+# cycle_ai still works
+a = create_ai("deepseek_gk")
+print("cycle from deepseek_gk ->", cycle_ai(a).name if cycle_ai(a) else None)
+# quick frames of live loop
+import pygame as _pg
+for _ in range(30):
+    _pg.event.pump()
+print("30 frames OK")
+import sys; sys.exit(0)
+
+
 
 def ai_decision_to_keys(decision, player):
     """Convert an AI decision dict into a pressed-keys dict keyed by the

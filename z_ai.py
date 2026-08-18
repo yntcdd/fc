@@ -17,7 +17,7 @@ Registers: z_gk, z_def, z_pm, z_str into AI_REGISTRY when imported.
 import math
 import random
 
-from ai import (
+from deepseek_ai import (
     BaseAI, AI_REGISTRY,
     WIDTH, HEIGHT, GOAL_WIDTH, GOAL_HEIGHT, MAX_KICK_POWER, BALL_RADIUS,
     _dist, _norm, _move_toward, _wall_push, _path_blocked,
