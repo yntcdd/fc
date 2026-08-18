@@ -133,11 +133,11 @@ ai_font = pygame.font.SysFont(None, 24)
 # gemini AIs:   "gemini_gk" "gemini_pm" "gemini_def" "gemini_str"
 
 # blue team (attacks right) — Gemini AI Team
-PLAYER1_AI = create_ai("gemini_gk")    # blue GK
-PLAYER3_AI = create_ai("gemini_pm")    # blue PM
-PLAYER5_AI = create_ai("gemini_str")   # blue STR
-PLAYER7_AI = create_ai("gemini_def")   # blue DEF1
-PLAYER9_AI = create_ai("gemini_def")   # blue DEF2
+PLAYER1_AI = create_ai("deepseek_gk")    # blue GK
+PLAYER3_AI = create_ai("deepseek_pm")    # blue PM
+PLAYER5_AI = create_ai("deepseek_str")   # blue STR
+PLAYER7_AI = create_ai("deepseek_def")   # blue DEF1
+PLAYER9_AI = create_ai("deepseek_def")   # blue DEF2
 
 # red team (attacks left) — Custom / Original AI mix
 PLAYER2_AI = create_ai("z_gk")   # red GK

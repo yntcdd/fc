@@ -223,16 +223,26 @@ def _best_pass_target(player, teammates, opps, ar):
 
 
 def _shot_util(player, gx, gy, opps):
-    """Utility score for shooting from current position. 0-1000+."""
+    """Utility score for shooting from current position. Higher = better shot.
+
+    Shooting is encouraged: covered lanes only *penalize* the score instead
+    of forbidding the shot — in this game a ball kicked through a "blocked"
+    lane still travels toward goal and can beat the keeper. Generous range
+    keeps long shots attractive.
+    """
     d = _dist(player.x, player.y, gx, gy)
-    if _path_blocked(player.x, player.y, gx, gy, opps, 40):
-        return -100
-    dist_sc = max(0, 600 - d * 0.3)
+    dist_sc = max(0, 800 - d * 0.22)
     opp_d = min((_dist(player.x, player.y, o.x, o.y) for o in opps), default=999)
-    pressure = min(150, opp_d)
+    pressure = min(200, opp_d * 1.2)
     angle = abs(player.y - gy) / max(1, d)
-    angle_sc = max(0, 100 - angle * 300)
-    return dist_sc + pressure + angle_sc
+    angle_sc = max(0, 120 - angle * 300)
+
+    # Lane quality: how many of (far corner, near corner, centre) are open
+    targets = [(gx, gy - _GHH + 25), (gx, gy + _GHH - 25), (gx, gy)]
+    open_n = sum(1 for tx, ty in targets
+                 if not _path_blocked(player.x, player.y, tx, ty, opps, 40))
+    lane_sc = open_n * 130 - 110   # -110 fully covered ... +280 all open
+    return dist_sc + pressure + angle_sc + lane_sc
 
 
 # ────────────────────────────────────────────────────────────────
@@ -339,7 +349,7 @@ class ZGoalkeeperAI(BaseAI):
         # Candidate A: Angle-cut on goal-centre → current ball line
         gtb_d = math.hypot(ball_x - og_x, ball_y - og_y)
         if gtb_d > 1:
-            reach = min(60, gtb_d * 0.22)
+            reach = min(90, gtb_d * 0.25)
             ca_x = og_x + (ball_x - og_x) / gtb_d * reach
             ca_y = og_y + (ball_y - og_y) / gtb_d * reach
         else:
@@ -347,10 +357,10 @@ class ZGoalkeeperAI(BaseAI):
         ca_x, ca_y = _clamp_box(ca_x, ca_y, attacking_right)
         candidates.append((ca_x, ca_y))
 
-        # Candidate B: Angle-cut on goal-centre → predicted ball line
+        # Candidate B: Angle-cut on goal-centre → predicted ball line (10f)
         gtb_pd = math.hypot(pred10[0] - og_x, pred10[1] - og_y)
         if gtb_pd > 1:
-            reach = min(60, gtb_pd * 0.22)
+            reach = min(90, gtb_pd * 0.25)
             cb_x = og_x + (pred10[0] - og_x) / gtb_pd * reach
             cb_y = og_y + (pred10[1] - og_y) / gtb_pd * reach
         else:
@@ -372,6 +382,24 @@ class ZGoalkeeperAI(BaseAI):
         mid_x, mid_y = _clamp_box(mid_x, mid_y, attacking_right)
         candidates.append((mid_x, mid_y))
 
+        # Candidate F: Angle-cut on the longer (20f) prediction — tracks
+        # fast-moving balls more accurately
+        gtb_p20 = math.hypot(pred20[0] - og_x, pred20[1] - og_y)
+        if gtb_p20 > 1:
+            reach = min(90, gtb_p20 * 0.25)
+            cf_x = og_x + (pred20[0] - og_x) / gtb_p20 * reach
+            cf_y = og_y + (pred20[1] - og_y) / gtb_p20 * reach
+        else:
+            cf_x, cf_y = og_x + gd * 30, og_y
+        cf_x, cf_y = _clamp_box(cf_x, cf_y, attacking_right)
+        candidates.append((cf_x, cf_y))
+
+        # Candidate G: Slide along the goal line tracking the ball's height
+        cg_x = og_x + gd * min(90, max(25, dist_ball * 0.18))
+        cg_y = og_y + (ball_y - og_y) * 0.6
+        cg_x, cg_y = _clamp_box(cg_x, cg_y, attacking_right)
+        candidates.append((cg_x, cg_y))
+
         # Score each candidate position
         best_pos = candidates[-1]
         best_score = -999
@@ -379,7 +407,7 @@ class ZGoalkeeperAI(BaseAI):
         for cx, cy in candidates:
             score = 0.0
 
-            # Coverage of ball-to-goal line
+            # Coverage of ball-to-goal line (heavier weight = tighter tracking)
             btg_num = abs((ball_x - og_x) * (cy - og_y)
                           - (ball_y - og_y) * (cx - og_x))
             btg_den = math.hypot(ball_x - og_x, ball_y - og_y)
@@ -387,9 +415,9 @@ class ZGoalkeeperAI(BaseAI):
                 cov_ball = 1 - min(1, btg_num / btg_den / 80)
             else:
                 cov_ball = 0.5
-            score += cov_ball * 350
+            score += cov_ball * 450
 
-            # Coverage of predicted ball-to-goal line
+            # Coverage of predicted (10f) ball-to-goal line
             btg_p_num = abs((pred10[0] - og_x) * (cy - og_y)
                             - (pred10[1] - og_y) * (cx - og_x))
             btg_p_den = math.hypot(pred10[0] - og_x, pred10[1] - og_y)
@@ -397,17 +425,36 @@ class ZGoalkeeperAI(BaseAI):
                 cov_pred = 1 - min(1, btg_p_num / btg_p_den / 100)
             else:
                 cov_pred = 0.5
-            score += cov_pred * 250
+            score += cov_pred * 350
+
+            # Coverage of predicted (20f) ball-to-goal line — tracks fast balls
+            btg_p2_num = abs((pred20[0] - og_x) * (cy - og_y)
+                             - (pred20[1] - og_y) * (cx - og_x))
+            btg_p2_den = math.hypot(pred20[0] - og_x, pred20[1] - og_y)
+            if btg_p2_den > 1:
+                cov_p2 = 1 - min(1, btg_p2_num / btg_p2_den / 100)
+            else:
+                cov_p2 = 0.5
+            score += cov_p2 * 250
+
+            # Lateral tracking: slide with the ball's current and predicted
+            # height so the keeper follows shots across the goal mouth.
+            # Wide window so the keeper tracks even from distance.
+            lat_now = max(0, 1 - abs(cy - ball_y) / 500)
+            score += lat_now * 400
+            lat_pred = max(0, 1 - abs(cy - pred10[1]) / 500)
+            score += lat_pred * 300
 
             # Bonus for being close to ball when ball is in the box
             if ball_in_box:
                 closeness = max(0, 200 - _dist(cx, cy, ball_x, ball_y)) / 200
-                score += closeness * 200
+                score += closeness * 250
             else:
-                # Ball far away — prefer staying closer to goal line
+                # Ball far away — come off the line a little to cut angles,
+                # but don't chase it across the pitch
                 dist_from_gl = abs(cx - og_x)
-                if dist_from_gl > 35:
-                    score -= (dist_from_gl - 35) * 3
+                if dist_from_gl > 50:
+                    score -= (dist_from_gl - 50) * 1.5
 
             # Rush bonus: when ball is slow & close, going to ball is great
             if (ball_in_box and dist_ball < 150 and b_spd < 8):
@@ -452,6 +499,7 @@ class ZDefenderAI(BaseAI):
         og_x = _own_gx(attacking_right)
         og_y = HEIGHT // 2
         gd = _gd(attacking_right)
+        gx = _opp_gx(attacking_right)
         half = WIDTH // 2
         kick = False
         face = None
@@ -467,17 +515,28 @@ class ZDefenderAI(BaseAI):
         is_primary = self._is_primary(player, teammates, ball_x, ball_y,
                                       attacking_right)
 
-        # ── Carrying: evaluate pass vs clear ───────────────────
+        # ── Carrying: evaluate shoot vs pass vs clear ──────────
         if player.holding_ball:
             opp, opp_d = _closest_opponent(player.x, player.y, opponents)
             best_m, best_s = _best_pass_target(player, teammates, opponents,
                                                 attacking_right)
+            shot_sc = _shot_util(player, gx, og_y, opponents)
 
             # Utility scores for each action
             pass_score = best_s if (best_m and not _is_gk(best_m)) else -999
             clear_score = 200 if opp_d < 120 else 50
 
-            if pass_score > clear_score and pass_score > -100:
+            # Defenders shoot too once they've pushed up with the ball and a
+            # corner of the goal is open
+            defender_past_half = ((attacking_right and player.x > half - 40) or
+                                  (not attacking_right and player.x < half + 40))
+
+            if shot_sc > 150 and defender_past_half and shot_sc > pass_score:
+                corner_y = (og_y - _GHH + 25 if player.y > og_y
+                            else og_y + _GHH - 25)
+                face = _norm(gx - player.x, corner_y - player.y)
+                pwr = MAX_KICK_POWER
+            elif pass_score > clear_score and pass_score > -100:
                 face = _norm(best_m.x - player.x, best_m.y - player.y)
                 pwr = min(MAX_KICK_POWER, max(10,
                     _dist(player.x, player.y, best_m.x, best_m.y) * 0.06))
@@ -674,15 +733,17 @@ class ZPlaymakerAI(BaseAI):
                 face = _norm(esc_x - player.x, esc_y - player.y)
                 return self._decide(player, u, d, l, r, sprint, kick, face)
 
-            # Pick best action
-            if shot_sc > max(pass_sc, dribble_sc) and shot_sc > 250:
+            # Aggressive shooting: shoot whenever the shot is decent, within
+            # reach, and the lane is open; past halfway shooting outranks all.
+            d_goal = _dist(player.x, player.y, gx, gy)
+            if shot_sc > 120 and d_goal < 1000 and (past_half or shot_sc >= pass_sc):
                 corner_y = (gy - _GHH + 25 if player.y > gy
                             else gy + _GHH - 25)
                 face = _norm(gx - player.x, corner_y - player.y)
                 player.kick_power = MAX_KICK_POWER
                 u, d, l, r = _move_safe(player, gx, gy, 50, 0.35)
 
-            elif pass_sc > max(shot_sc, dribble_sc) and pass_sc > 50:
+            elif pass_sc > 50 and pass_sc >= dribble_sc:
                 face = _norm(best_m.x - player.x, best_m.y - player.y)
                 player.kick_power = min(MAX_KICK_POWER, max(8,
                     _dist(player.x, player.y, best_m.x, best_m.y) * 0.06))
@@ -848,9 +909,9 @@ class ZStrikerAI(BaseAI):
                 face = _norm(esc_x - player.x, esc_y - player.y)
                 return self._decide(player, u, d, l, r, sprint, kick, face)
 
-            # Inside opponent box → shoot aggressively
+            # Inside opponent box or close range → shoot aggressively
             in_opp_box = _in_box(player.x, player.y, not attacking_right)
-            if in_opp_box or (past_half and dist_goal < 380):
+            if in_opp_box or (past_half and dist_goal < 650):
                 corner_y = (gy - _GHH + 25 if player.y > gy
                             else gy + _GHH - 25)
                 face = _norm(gx - player.x, corner_y - player.y)
@@ -866,7 +927,7 @@ class ZStrikerAI(BaseAI):
                 key=lambda x: x[1],
             )
 
-            if best_action[0] == "shoot" and shot_sc > 200:
+            if best_action[0] == "shoot" and shot_sc > 120 and dist_goal < 1000:
                 corner_y = (gy - _GHH + 30 if player.y > gy
                             else gy + _GHH - 30)
                 face = _norm(gx - player.x, corner_y - player.y)
