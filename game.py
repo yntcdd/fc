@@ -15,7 +15,7 @@ pygame.display.set_caption("Soccer Game")
 clock = pygame.time.Clock()
 
 # Load player avatar images
-_IMG_SIZE = 44
+_IMG_SIZE = 35
 
 def _make_circular(img):
     """Crop an image to a circle using an alpha mask."""
@@ -163,7 +163,7 @@ steal_cooldown = 0
 last_kicker = None
 interception_timer = 0
 
-ball_radius = 12
+ball_radius = 10
 ball_x = WIDTH // 2
 ball_y = HEIGHT // 2
 
